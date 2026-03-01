@@ -1,7 +1,8 @@
 use crate::config::Config;
-use crate::mounts::{self, Mount, MountSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+// ── Cross-platform utilities ────────────────────────────────────
 
 fn mise_bin() -> Option<PathBuf> {
     std::env::var("PATH")
@@ -23,6 +24,76 @@ fn mise_init_cmd(mise_path: &Path) -> String {
     format!("{p} trust && eval \"$({p} activate bash)\" && eval \"$({p} env)\"")
 }
 
+fn shell_join(parts: &[String]) -> String {
+    parts
+        .iter()
+        .map(|s| {
+            if s.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == '\\') {
+                format!("'{}'", s.replace('\'', "'\\''"))
+            } else {
+                s.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn build_shell_command(config: &Config) -> String {
+    let use_mise = config.no_mise != Some(true);
+    let mise_prefix = if use_mise {
+        mise_bin().map(|p| mise_init_cmd(&p))
+    } else {
+        None
+    };
+    let mise_prefix = mise_prefix.as_deref().unwrap_or("true");
+
+    let user_cmd = if config.command.is_empty() {
+        "bash".to_string()
+    } else {
+        shell_join(&config.command)
+    };
+
+    format!("{mise_prefix} && {user_cmd}")
+}
+
+// ── Platform dispatcher ─────────────────────────────────────────
+
+pub fn check_sandbox() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        check_bwrap()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        check_sandbox_exec()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        Err("ai-jail is only supported on Linux and macOS".into())
+    }
+}
+
+// ── Linux: bwrap ────────────────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+use crate::mounts::{self, Mount, MountSet};
+
+#[cfg(target_os = "linux")]
+fn check_bwrap() -> Result<(), String> {
+    match Command::new("bwrap").arg("--version").output() {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(_) => Err("bwrap found but returned an error. Check your installation.".into()),
+        Err(_) => Err(
+            "bwrap (bubblewrap) not found. Install it:\n  \
+             Arch: pacman -S bubblewrap\n  \
+             Debian/Ubuntu: apt install bubblewrap\n  \
+             Fedora: dnf install bubblewrap"
+                .into(),
+        ),
+    }
+}
+
+#[cfg(target_os = "linux")]
 pub fn build_bwrap(
     config: &Config,
     project_dir: &Path,
@@ -64,27 +135,13 @@ pub fn build_bwrap(
     cmd.arg("--setenv").arg("PS1").arg("(jail) \\w \\$ ");
     cmd.arg("--setenv").arg("_ZO_DOCTOR").arg("0");
 
-    // Build the shell command
-    let use_mise = config.no_mise != Some(true);
-    let mise_prefix = if use_mise {
-        mise_bin().map(|p| mise_init_cmd(&p))
-    } else {
-        None
-    };
-    let mise_prefix = mise_prefix.as_deref().unwrap_or("true");
-
-    let user_cmd = if config.command.is_empty() {
-        "bash".to_string()
-    } else {
-        shell_join(&config.command)
-    };
-
-    let full_cmd = format!("{mise_prefix} && {user_cmd}");
+    let full_cmd = build_shell_command(config);
     cmd.arg("bash").arg("-c").arg(&full_cmd);
 
     cmd
 }
 
+#[cfg(target_os = "linux")]
 pub fn build_bwrap_dry_run(
     config: &Config,
     project_dir: &Path,
@@ -130,21 +187,7 @@ pub fn build_bwrap_dry_run(
     args.push("_ZO_DOCTOR".into());
     args.push("0".into());
 
-    let use_mise = config.no_mise != Some(true);
-    let mise_prefix = if use_mise {
-        mise_bin().map(|p| mise_init_cmd(&p))
-    } else {
-        None
-    };
-    let mise_prefix = mise_prefix.as_deref().unwrap_or("true");
-
-    let user_cmd = if config.command.is_empty() {
-        "bash".to_string()
-    } else {
-        shell_join(&config.command)
-    };
-
-    let full_cmd = format!("{mise_prefix} && {user_cmd}");
+    let full_cmd = build_shell_command(config);
     args.push("bash".into());
     args.push("-c".into());
     args.push(full_cmd);
@@ -152,6 +195,7 @@ pub fn build_bwrap_dry_run(
     args
 }
 
+#[cfg(target_os = "linux")]
 fn discover_mounts(
     config: &Config,
     project_dir: &Path,
@@ -192,6 +236,7 @@ fn discover_mounts(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn add_mounts(cmd: &mut Command, mounts: &[Mount]) {
     for m in mounts {
         match m {
@@ -223,6 +268,7 @@ fn add_mounts(cmd: &mut Command, mounts: &[Mount]) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn mount_args(mounts: &[Mount]) -> Vec<String> {
     let mut args = Vec::new();
     for m in mounts {
@@ -254,34 +300,6 @@ fn mount_args(mounts: &[Mount]) -> Vec<String> {
         }
     }
     args
-}
-
-fn shell_join(parts: &[String]) -> String {
-    parts
-        .iter()
-        .map(|s| {
-            if s.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == '\\') {
-                format!("'{}'", s.replace('\'', "'\\''"))
-            } else {
-                s.clone()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-pub fn check_bwrap() -> Result<(), String> {
-    match Command::new("bwrap").arg("--version").output() {
-        Ok(out) if out.status.success() => Ok(()),
-        Ok(_) => Err("bwrap found but returned an error. Check your installation.".into()),
-        Err(_) => Err(
-            "bwrap (bubblewrap) not found. Install it:\n  \
-             Arch: pacman -S bubblewrap\n  \
-             Debian/Ubuntu: apt install bubblewrap\n  \
-             Fedora: dnf install bubblewrap"
-                .into(),
-        ),
-    }
 }
 
 pub fn format_dry_run(args: &[String]) -> String {
@@ -334,11 +352,181 @@ pub fn format_dry_run(args: &[String]) -> String {
     out
 }
 
+// ── macOS: sandbox-exec ─────────────────────────────────────────
+
+#[cfg(target_os = "macos")]
+use crate::mounts;
+
+#[cfg(target_os = "macos")]
+fn check_sandbox_exec() -> Result<(), String> {
+    let path = Path::new("/usr/bin/sandbox-exec");
+    if path.is_file() {
+        Ok(())
+    } else {
+        Err("sandbox-exec not found at /usr/bin/sandbox-exec. \
+             This tool is required for sandboxing on macOS."
+            .into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn canonicalize_or_keep(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+#[cfg(target_os = "macos")]
+pub fn generate_sbpl_profile(
+    config: &Config,
+    project_dir: &Path,
+    enable_docker: bool,
+) -> String {
+    let deny_paths = mounts::macos_read_deny_paths();
+    let writable_paths = mounts::macos_writable_paths(project_dir, config);
+
+    let mut profile = String::new();
+    profile.push_str("(version 1)\n");
+    profile.push_str("(deny default)\n\n");
+
+    // Process operations
+    profile.push_str("; Process operations\n");
+    profile.push_str("(allow process-exec)\n");
+    profile.push_str("(allow process-fork)\n");
+    profile.push_str("(allow signal)\n");
+    profile.push_str("(allow sysctl-read)\n\n");
+
+    // IPC and Mach
+    profile.push_str("; IPC and Mach\n");
+    profile.push_str("(allow mach-lookup)\n");
+    profile.push_str("(allow mach-register)\n");
+    profile.push_str("(allow ipc-posix-shm-read-data)\n");
+    profile.push_str("(allow ipc-posix-shm-write-data)\n");
+    profile.push_str("(allow ipc-posix-shm-read-metadata)\n");
+    profile.push_str("(allow ipc-posix-shm-write-create)\n\n");
+
+    // Pseudo-terminal operations
+    profile.push_str("; Pseudo-terminal\n");
+    profile.push_str("(allow pseudo-tty)\n\n");
+
+    // Network
+    profile.push_str("; Network\n");
+    profile.push_str("(allow network-outbound)\n");
+    profile.push_str("(allow network-inbound)\n");
+    profile.push_str("(allow network-bind)\n");
+    profile.push_str("(allow system-socket)\n\n");
+
+    // File reads: allow globally, then deny sensitive paths
+    profile.push_str("; File reads: allow globally, deny sensitive paths\n");
+    profile.push_str("(allow file-read*)\n");
+
+    for deny_path in &deny_paths {
+        let canonical = canonicalize_or_keep(deny_path);
+        let display = canonical.display();
+        if canonical.is_dir() {
+            profile.push_str(&format!("(deny file-read* (subpath \"{display}\"))\n"));
+        } else {
+            profile.push_str(&format!("(deny file-read* (literal \"{display}\"))\n"));
+        }
+    }
+    profile.push('\n');
+
+    // File writes: deny by default (from deny default), allow specific paths
+    profile.push_str("; File writes: allow specific paths\n");
+    for wr_path in &writable_paths {
+        let canonical = canonicalize_or_keep(wr_path);
+        let display = canonical.display();
+        if canonical.is_dir() || !canonical.exists() {
+            profile.push_str(&format!("(allow file-write* (subpath \"{display}\"))\n"));
+        } else {
+            profile.push_str(&format!("(allow file-write* (literal \"{display}\"))\n"));
+        }
+    }
+    profile.push('\n');
+
+    // Docker socket
+    if enable_docker {
+        if let Some(sock) = mounts::macos_docker_socket() {
+            let canonical = canonicalize_or_keep(&sock);
+            let display = canonical.display();
+            profile.push_str("; Docker socket\n");
+            profile.push_str(&format!("(allow file-write* (literal \"{display}\"))\n"));
+            profile.push('\n');
+        }
+    }
+
+    profile
+}
+
+#[cfg(target_os = "macos")]
+pub fn build_sandbox_exec(
+    config: &Config,
+    project_dir: &Path,
+    verbose: bool,
+) -> Command {
+    let enable_docker = config.no_docker != Some(true);
+    let profile = generate_sbpl_profile(config, project_dir, enable_docker);
+
+    if verbose {
+        crate::output::verbose("SBPL profile:");
+        for line in profile.lines() {
+            crate::output::verbose(&format!("  {line}"));
+        }
+    }
+
+    let full_cmd = build_shell_command(config);
+
+    let mut cmd = Command::new("/usr/bin/sandbox-exec");
+    cmd.arg("-p").arg(&profile);
+    cmd.arg("bash").arg("-c").arg(&full_cmd);
+    cmd.current_dir(project_dir);
+
+    // Standard env vars
+    cmd.env("PS1", "(jail) \\w \\$ ");
+    cmd.env("_ZO_DOCTOR", "0");
+
+    cmd
+}
+
+#[cfg(target_os = "macos")]
+pub fn build_sandbox_exec_dry_run(
+    config: &Config,
+    project_dir: &Path,
+    verbose: bool,
+) -> (String, String) {
+    let enable_docker = config.no_docker != Some(true);
+    let profile = generate_sbpl_profile(config, project_dir, enable_docker);
+
+    if verbose {
+        crate::output::verbose("SBPL profile:");
+        for line in profile.lines() {
+            crate::output::verbose(&format!("  {line}"));
+        }
+    }
+
+    let full_cmd = build_shell_command(config);
+    let command_line = format!(
+        "sandbox-exec -p '<profile>' bash -c '{full_cmd}'"
+    );
+    (command_line, profile)
+}
+
+#[cfg(target_os = "macos")]
+pub fn format_dry_run_macos(command_line: &str, profile: &str) -> String {
+    let mut out = String::new();
+    out.push_str("# sandbox-exec command:\n");
+    out.push_str(command_line);
+    out.push('\n');
+    out.push_str("\n# SBPL profile:\n");
+    out.push_str(profile);
+    out
+}
+
+// ── Tests ───────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ── shell_join tests ───────────────────────────────────────
+    // ── shell_join tests (cross-platform) ───────────────────────
 
     #[test]
     fn shell_join_simple() {
@@ -370,7 +558,7 @@ mod tests {
         assert_eq!(shell_join(&parts), "");
     }
 
-    // ── mise_init_cmd tests ────────────────────────────────────
+    // ── mise_init_cmd tests (cross-platform) ────────────────────
 
     #[test]
     fn mise_init_cmd_format() {
@@ -380,7 +568,30 @@ mod tests {
         assert!(cmd.contains("/usr/bin/mise env"));
     }
 
-    // ── format_dry_run tests ───────────────────────────────────
+    // ── build_shell_command tests (cross-platform) ──────────────
+
+    #[test]
+    fn build_shell_command_default_is_bash() {
+        let config = Config {
+            no_mise: Some(true),
+            ..Config::default()
+        };
+        let cmd = build_shell_command(&config);
+        assert_eq!(cmd, "true && bash");
+    }
+
+    #[test]
+    fn build_shell_command_with_command() {
+        let config = Config {
+            command: vec!["claude".into()],
+            no_mise: Some(true),
+            ..Config::default()
+        };
+        let cmd = build_shell_command(&config);
+        assert_eq!(cmd, "true && claude");
+    }
+
+    // ── format_dry_run tests (cross-platform) ───────────────────
 
     #[test]
     fn format_dry_run_basic() {
@@ -404,8 +615,9 @@ mod tests {
         assert!(output.is_empty());
     }
 
-    // ── mount_args tests ───────────────────────────────────────
+    // ── Linux-only tests ────────────────────────────────────────
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_ro_bind() {
         let mounts = vec![Mount::RoBind {
@@ -416,6 +628,7 @@ mod tests {
         assert_eq!(args, vec!["--ro-bind", "/usr", "/usr"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_bind() {
         let mounts = vec![Mount::Bind {
@@ -426,6 +639,7 @@ mod tests {
         assert_eq!(args, vec!["--bind", "/tmp", "/tmp"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_dev_bind() {
         let mounts = vec![Mount::DevBind {
@@ -436,6 +650,7 @@ mod tests {
         assert_eq!(args, vec!["--dev-bind", "/dev/dri", "/dev/dri"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_dev() {
         let mounts = vec![Mount::Dev {
@@ -445,6 +660,7 @@ mod tests {
         assert_eq!(args, vec!["--dev", "/dev"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_proc() {
         let mounts = vec![Mount::Proc {
@@ -454,6 +670,7 @@ mod tests {
         assert_eq!(args, vec!["--proc", "/proc"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_tmpfs() {
         let mounts = vec![Mount::Tmpfs {
@@ -463,6 +680,7 @@ mod tests {
         assert_eq!(args, vec!["--tmpfs", "/tmp"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_symlink() {
         let mounts = vec![Mount::Symlink {
@@ -473,6 +691,7 @@ mod tests {
         assert_eq!(args, vec!["--symlink", "usr/bin", "/bin"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_multiple() {
         let mounts = vec![
@@ -491,6 +710,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_args_empty() {
         let mounts: Vec<Mount> = vec![];
@@ -498,8 +718,9 @@ mod tests {
         assert!(args.is_empty());
     }
 
-    // ── dry_run integration test ───────────────────────────────
+    // ── Linux dry_run integration tests ─────────────────────────
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_contains_isolation_flags() {
         let config = Config {
@@ -523,6 +744,7 @@ mod tests {
         assert!(args.contains(&"ai-sandbox".to_string()));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_contains_project_dir() {
         let config = Config {
@@ -552,6 +774,7 @@ mod tests {
         assert!(chdir_idx.is_some(), "Should chdir to project dir");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_no_gpu_excludes_gpu_mounts() {
         let config = Config {
@@ -567,9 +790,6 @@ mod tests {
 
         let args = build_bwrap_dry_run(&config, &project, &hosts, false);
 
-        // No --dev-bind for nvidia or dri devices should appear.
-        // (Other mounts like cache dirs may contain "nvidia" in their path,
-        // so we specifically check for --dev-bind which is what GPU mounts use.)
         let has_gpu_dev_bind = args.windows(3).any(|w| {
             w[0] == "--dev-bind"
                 && (w[1].contains("nvidia") || w[1].contains("/dev/dri"))
@@ -577,6 +797,7 @@ mod tests {
         assert!(!has_gpu_dev_bind, "GPU disabled: no --dev-bind for GPU devices expected");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_no_docker_excludes_docker_socket() {
         let config = Config {
@@ -596,6 +817,7 @@ mod tests {
         assert!(!has_docker, "Docker disabled: no docker socket expected");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_no_display_excludes_display_env() {
         let config = Config {
@@ -611,13 +833,13 @@ mod tests {
 
         let args = build_bwrap_dry_run(&config, &project, &hosts, false);
 
-        // DISPLAY and WAYLAND_DISPLAY should not be set
         let display_idx = args
             .windows(3)
             .any(|w| w[0] == "--setenv" && (w[1] == "DISPLAY" || w[1] == "WAYLAND_DISPLAY"));
         assert!(!display_idx, "Display disabled: no DISPLAY env expected");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_mise_disabled_uses_true_prefix() {
         let config = Config {
@@ -633,11 +855,11 @@ mod tests {
 
         let args = build_bwrap_dry_run(&config, &project, &hosts, false);
 
-        // The last arg is the bash -c command
         let last = args.last().unwrap();
         assert!(last.starts_with("true && "), "Mise disabled: should use 'true' prefix, got: {last}");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_default_command_is_bash() {
         let config = Config {
@@ -655,6 +877,7 @@ mod tests {
         assert!(last.ends_with("bash"), "Default command should be bash, got: {last}");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_env_vars_present() {
         let config = Config {
@@ -670,20 +893,19 @@ mod tests {
 
         let args = build_bwrap_dry_run(&config, &project, &hosts, false);
 
-        // PS1 should be set
         let has_ps1 = args.windows(3).any(|w| w[0] == "--setenv" && w[1] == "PS1");
         assert!(has_ps1, "PS1 env var should be set");
 
-        // _ZO_DOCTOR should be set
         let has_zo = args.windows(3).any(|w| w[0] == "--setenv" && w[1] == "_ZO_DOCTOR" && w[2] == "0");
         assert!(has_zo, "_ZO_DOCTOR env var should be set to 0");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dry_run_extra_rw_maps_present() {
         let config = Config {
             command: vec!["bash".into()],
-            rw_maps: vec![PathBuf::from("/tmp")],  // /tmp always exists
+            rw_maps: vec![PathBuf::from("/tmp")],
             no_gpu: Some(true),
             no_docker: Some(true),
             no_display: Some(true),
@@ -699,5 +921,75 @@ mod tests {
             .windows(3)
             .any(|w| w[0] == "--bind" && w[1] == "/tmp" && w[2] == "/tmp");
         assert!(has_tmp_bind, "Extra rw map /tmp should be present");
+    }
+
+    // ── macOS-specific tests ────────────────────────────────────
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sbpl_profile_has_deny_default() {
+        let config = Config {
+            command: vec!["bash".into()],
+            no_mise: Some(true),
+            ..Config::default()
+        };
+        let project = PathBuf::from("/tmp/test-project");
+        let profile = generate_sbpl_profile(&config, &project, false);
+        assert!(profile.contains("(deny default)"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sbpl_profile_allows_file_read() {
+        let config = Config::default();
+        let project = PathBuf::from("/tmp/test-project");
+        let profile = generate_sbpl_profile(&config, &project, false);
+        assert!(profile.contains("(allow file-read*)"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sbpl_profile_denies_ssh() {
+        let config = Config::default();
+        let project = PathBuf::from("/tmp/test-project");
+        let profile = generate_sbpl_profile(&config, &project, false);
+        let home = mounts::home_dir();
+        if home.join(".ssh").exists() {
+            assert!(profile.contains(".ssh"));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sbpl_profile_allows_project_write() {
+        let config = Config::default();
+        let project = PathBuf::from("/tmp/test-project");
+        let profile = generate_sbpl_profile(&config, &project, false);
+        assert!(profile.contains("file-write*"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sbpl_profile_allows_network() {
+        let config = Config::default();
+        let project = PathBuf::from("/tmp/test-project");
+        let profile = generate_sbpl_profile(&config, &project, false);
+        assert!(profile.contains("(allow network-outbound)"));
+        assert!(profile.contains("(allow network-inbound)"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn dry_run_macos_output() {
+        let config = Config {
+            command: vec!["bash".into()],
+            no_mise: Some(true),
+            ..Config::default()
+        };
+        let project = PathBuf::from("/tmp/test-project");
+        let (cmd_line, profile) = build_sandbox_exec_dry_run(&config, &project, false);
+        let output = format_dry_run_macos(&cmd_line, &profile);
+        assert!(output.contains("sandbox-exec"));
+        assert!(output.contains("SBPL profile"));
     }
 }

@@ -29,6 +29,7 @@ impl Drop for TempFile {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn run() -> Result<i32, String> {
     let cli = cli::parse()?;
 
@@ -55,7 +56,7 @@ fn run() -> Result<i32, String> {
     }
 
     // Check bwrap is available
-    sandbox::check_bwrap()?;
+    sandbox::check_sandbox()?;
 
     // Create temp hosts file
     let hosts = TempFile::create_hosts()?;
@@ -83,6 +84,83 @@ fn run() -> Result<i32, String> {
     let mut cmd = sandbox::build_bwrap(&config, &project_dir, &hosts.path, cli.verbose);
 
     let child = cmd.spawn().map_err(|e| format!("Failed to start bwrap: {e}"))?;
+
+    let pid = child.id() as i32;
+    signals::set_child_pid(pid);
+
+    // Wait for child via nix (handles EINTR correctly)
+    let exit_code = signals::wait_child(Pid::from_raw(pid));
+
+    // Explicitly forget the std::process::Child since we already waited via nix.
+    // This prevents a double-wait.
+    std::mem::forget(child);
+
+    // hosts TempFile is dropped here, cleaning up the temp file
+    drop(hosts);
+
+    Ok(exit_code)
+}
+
+#[cfg(target_os = "macos")]
+fn run() -> Result<i32, String> {
+    let cli = cli::parse()?;
+
+    // Load or skip config
+    let existing = if cli.clean {
+        config::Config::default()
+    } else {
+        config::load()
+    };
+
+    let config = config::merge(&cli, existing);
+
+    // Handle status command
+    if cli.status {
+        config::display_status(&config);
+        return Ok(0);
+    }
+
+    // Handle --init: save config and exit
+    if cli.init {
+        config::save(&config);
+        output::info("Config saved to .ai-jail");
+        return Ok(0);
+    }
+
+    // Check sandbox-exec is available
+    sandbox::check_sandbox()?;
+
+    // Info messages for no-op flags on macOS
+    if config.no_gpu == Some(true) {
+        output::info("--no-gpu has no effect on macOS (Metal is system-level)");
+    }
+    if config.no_display == Some(true) {
+        output::info("--no-display has no effect on macOS (Cocoa is system-level)");
+    }
+
+    let project_dir = std::env::current_dir()
+        .map_err(|e| format!("Cannot determine current directory: {e}"))?;
+
+    // Save config (creates .ai-jail on first run, updates on subsequent runs)
+    config::save(&config);
+
+    // Handle dry run
+    if cli.dry_run {
+        let (cmd_line, profile) = sandbox::build_sandbox_exec_dry_run(&config, &project_dir, cli.verbose);
+        let formatted = sandbox::format_dry_run_macos(&cmd_line, &profile);
+        output::dry_run_line(&formatted);
+        return Ok(0);
+    }
+
+    output::info(&format!("Jail Active: {}", project_dir.display()));
+
+    // Install signal handlers before spawning
+    signals::install_handlers();
+
+    // Spawn sandbox-exec
+    let mut cmd = sandbox::build_sandbox_exec(&config, &project_dir, cli.verbose);
+
+    let child = cmd.spawn().map_err(|e| format!("Failed to start sandbox-exec: {e}"))?;
 
     let pid = child.id() as i32;
     signals::set_child_pid(pid);

@@ -2,7 +2,7 @@
 name = "ai-jail"
 version = "0.1.0"
 edition = "2021"
-description = "Bubblewrap sandbox for AI coding agents"
+description = "Sandbox for AI coding agents (bubblewrap on Linux, sandbox-exec on macOS)"
 license = "GPL-3.0-only"
 
 [dependencies]

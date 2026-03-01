@@ -3,7 +3,7 @@ use std::path::PathBuf;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const HELP: &str = "\
-ai-jail — bubblewrap sandbox for AI coding agents
+ai-jail — sandbox for AI coding agents (bwrap on Linux, sandbox-exec on macOS)
 
 USAGE:
     ai-jail [OPTIONS] [--] [COMMAND [ARGS...]]
@@ -16,12 +16,12 @@ COMMANDS (positional):
 OPTIONS:
     --rw-map <PATH>         Mount PATH read-write inside sandbox (repeatable)
     --map <PATH>            Mount PATH read-only inside sandbox (repeatable)
-    --no-gpu / --gpu        Disable/enable GPU device passthrough
+    --no-gpu / --gpu        Disable/enable GPU device passthrough (Linux only)
     --no-docker / --docker  Disable/enable Docker socket passthrough
-    --no-display / --display Disable/enable X11/Wayland passthrough
+    --no-display / --display Disable/enable X11/Wayland passthrough (Linux only)
     --no-mise / --mise      Disable/enable mise integration
     --clean                 Ignore existing .ai-jail config, start fresh
-    --dry-run               Print the bwrap command without executing
+    --dry-run               Print the sandbox command without executing
     --init                  Create/update .ai-jail config and exit
     -v, --verbose           Show detailed mount info
     -h, --help              Show help
