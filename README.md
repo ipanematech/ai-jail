@@ -22,6 +22,16 @@ cargo install ai-jail
 mise use -g ubi:akitaonrails/ai-jail
 ```
 
+### Nix (flake)
+
+```bash
+# Run directly without installing
+nix run github:akitaonrails/ai-jail
+
+# Install to your profile
+nix profile install github:akitaonrails/ai-jail
+```
+
 ### GitHub Releases
 
 Download prebuilt binaries from the [Releases](https://github.com/akitaonrails/ai-jail/releases) page:
@@ -50,6 +60,7 @@ cp target/release/ai-jail ~/.local/bin/
   - Debian/Ubuntu: `apt install bubblewrap`
   - Fedora: `dnf install bubblewrap`
   - If `bwrap` is in a non-standard location (e.g. Nix store), set `BWRAP_BIN=/absolute/path/to/bwrap`.
+  - The Nix flake package already sets `BWRAP_BIN` automatically.
 - macOS: `/usr/bin/sandbox-exec` is used (legacy/deprecated Apple interface).
 
 ## Quick Start
