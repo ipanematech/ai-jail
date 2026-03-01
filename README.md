@@ -4,6 +4,28 @@ A sandbox wrapper for AI coding agents (Linux: `bwrap`, macOS: `sandbox-exec`). 
 
 ## Install
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap akitaonrails/tap && brew install ai-jail
+```
+
+### cargo install
+
+```bash
+cargo install ai-jail
+```
+
+### mise
+
+```bash
+mise use -g ubi:akitaonrails/ai-jail
+```
+
+### GitHub Releases
+
+Download prebuilt binaries from the [Releases](https://github.com/akitaonrails/ai-jail/releases) page.
+
 ### From source
 
 ```bash

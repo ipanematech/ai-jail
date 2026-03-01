@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "Sandbox for AI coding agents (bubblewrap on Linux, sandbox-exec on macOS)"
 license = "GPL-3.0-only"
+repository = "https://github.com/akitaonrails/ai-jail"
+readme = "README.md"
+keywords = ["sandbox", "ai", "security", "bubblewrap"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [".github/", "docs/", "dist/", ".claude/", ".ai-jail"]
 
 [dependencies]
 lexopt = "0.3"
