@@ -253,6 +253,10 @@ mod tests {
     use super::*;
     use crate::cli::CliArgs;
 
+    // Tests that call set_current_dir must hold this lock to avoid
+    // racing each other (cwd is process-global).
+    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn serialize_config(config: &Config) -> Result<String, String> {
         toml::to_string_pretty(config).map_err(|e| e.to_string())
     }
@@ -751,6 +755,7 @@ lockdown = false
 
     #[test]
     fn save_and_load_roundtrip() {
+        let _cwd = CWD_LOCK.lock().unwrap();
         let dir = std::env::temp_dir()
             .join(format!("ai-jail-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -785,6 +790,7 @@ lockdown = false
 
     #[test]
     fn save_rejects_symlink_target() {
+        let _cwd = CWD_LOCK.lock().unwrap();
         let dir = std::env::temp_dir()
             .join(format!("ai-jail-test-{}-symlink", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
