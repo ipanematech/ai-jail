@@ -1,8 +1,8 @@
 use crate::cli::CliArgs;
 use crate::output;
+use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = ".ai-jail";
@@ -123,7 +123,8 @@ fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp_path = parent.join(format!(".{stem}.tmp.{}.{}", std::process::id(), nonce));
+    let tmp_path =
+        parent.join(format!(".{stem}.tmp.{}.{}", std::process::id(), nonce));
 
     let mut f = OpenOptions::new()
         .create_new(true)
@@ -517,11 +518,11 @@ another_removed_field = true
     fn merge_all_boolean_flags() {
         let existing = Config::default();
         let cli = CliArgs {
-            gpu: Some(false),       // --no-gpu
-            docker: Some(false),    // --no-docker
-            display: Some(true),    // --display
-            mise: Some(true),       // --mise
-            lockdown: Some(true),   // --lockdown
+            gpu: Some(false),     // --no-gpu
+            docker: Some(false),  // --no-docker
+            display: Some(true),  // --display
+            mise: Some(true),     // --mise
+            lockdown: Some(true), // --lockdown
             ..CliArgs::default()
         };
         let merged = merge(&cli, existing);
@@ -579,44 +580,105 @@ another_removed_field = true
 
     #[test]
     fn gpu_enabled_accessor() {
-        assert!(Config { no_gpu: None, ..Config::default() }.gpu_enabled());
-        assert!(!Config { no_gpu: Some(true), ..Config::default() }.gpu_enabled());
-        assert!(Config { no_gpu: Some(false), ..Config::default() }.gpu_enabled());
+        assert!(Config {
+            no_gpu: None,
+            ..Config::default()
+        }
+        .gpu_enabled());
+        assert!(!Config {
+            no_gpu: Some(true),
+            ..Config::default()
+        }
+        .gpu_enabled());
+        assert!(Config {
+            no_gpu: Some(false),
+            ..Config::default()
+        }
+        .gpu_enabled());
     }
 
     #[test]
     fn docker_enabled_accessor() {
-        assert!(Config { no_docker: None, ..Config::default() }.docker_enabled());
-        assert!(!Config { no_docker: Some(true), ..Config::default() }.docker_enabled());
-        assert!(Config { no_docker: Some(false), ..Config::default() }.docker_enabled());
+        assert!(Config {
+            no_docker: None,
+            ..Config::default()
+        }
+        .docker_enabled());
+        assert!(!Config {
+            no_docker: Some(true),
+            ..Config::default()
+        }
+        .docker_enabled());
+        assert!(Config {
+            no_docker: Some(false),
+            ..Config::default()
+        }
+        .docker_enabled());
     }
 
     #[test]
     fn display_enabled_accessor() {
-        assert!(Config { no_display: None, ..Config::default() }.display_enabled());
-        assert!(!Config { no_display: Some(true), ..Config::default() }.display_enabled());
-        assert!(Config { no_display: Some(false), ..Config::default() }.display_enabled());
+        assert!(Config {
+            no_display: None,
+            ..Config::default()
+        }
+        .display_enabled());
+        assert!(!Config {
+            no_display: Some(true),
+            ..Config::default()
+        }
+        .display_enabled());
+        assert!(Config {
+            no_display: Some(false),
+            ..Config::default()
+        }
+        .display_enabled());
     }
 
     #[test]
     fn mise_enabled_accessor() {
-        assert!(Config { no_mise: None, ..Config::default() }.mise_enabled());
-        assert!(!Config { no_mise: Some(true), ..Config::default() }.mise_enabled());
-        assert!(Config { no_mise: Some(false), ..Config::default() }.mise_enabled());
+        assert!(Config {
+            no_mise: None,
+            ..Config::default()
+        }
+        .mise_enabled());
+        assert!(!Config {
+            no_mise: Some(true),
+            ..Config::default()
+        }
+        .mise_enabled());
+        assert!(Config {
+            no_mise: Some(false),
+            ..Config::default()
+        }
+        .mise_enabled());
     }
 
     #[test]
     fn lockdown_enabled_accessor() {
-        assert!(!Config { lockdown: None, ..Config::default() }.lockdown_enabled());
-        assert!(Config { lockdown: Some(true), ..Config::default() }.lockdown_enabled());
-        assert!(!Config { lockdown: Some(false), ..Config::default() }.lockdown_enabled());
+        assert!(!Config {
+            lockdown: None,
+            ..Config::default()
+        }
+        .lockdown_enabled());
+        assert!(Config {
+            lockdown: Some(true),
+            ..Config::default()
+        }
+        .lockdown_enabled());
+        assert!(!Config {
+            lockdown: Some(false),
+            ..Config::default()
+        }
+        .lockdown_enabled());
     }
 
     // ── File I/O tests (using temp dirs) ───────────────────────
 
     #[test]
     fn save_and_load_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("ai-jail-test-{}", std::process::id()));
+        let dir = std::env::temp_dir()
+            .join(format!("ai-jail-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let original_dir = std::env::current_dir().unwrap();
 
@@ -648,7 +710,8 @@ another_removed_field = true
 
     #[test]
     fn save_rejects_symlink_target() {
-        let dir = std::env::temp_dir().join(format!("ai-jail-test-{}-symlink", std::process::id()));
+        let dir = std::env::temp_dir()
+            .join(format!("ai-jail-test-{}-symlink", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let original_dir = std::env::current_dir().unwrap();
         let victim = dir.join("victim.txt");

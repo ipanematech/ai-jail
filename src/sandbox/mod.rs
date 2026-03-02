@@ -13,11 +13,19 @@ pub use bwrap::SandboxGuard;
 pub use seatbelt::SandboxGuard;
 
 // Dotdirs never mounted (sensitive data)
-const DOTDIR_DENY: &[&str] = &[".gnupg", ".aws", ".ssh", ".mozilla", ".basilisk-dev", ".sparrow"];
+const DOTDIR_DENY: &[&str] = &[
+    ".gnupg",
+    ".aws",
+    ".ssh",
+    ".mozilla",
+    ".basilisk-dev",
+    ".sparrow",
+];
 
 // Dotdirs requiring read-write access
 const DOTDIR_RW: &[&str] = &[
-    ".claude", ".crush", ".codex", ".aider", ".config", ".cargo", ".cache", ".docker",
+    ".claude", ".crush", ".codex", ".aider", ".config", ".cargo", ".cache",
+    ".docker",
 ];
 
 #[derive(Debug, Clone)]
@@ -61,7 +69,10 @@ fn default_launch_command(config: &Config) -> LaunchCommand {
     LaunchCommand { program, args }
 }
 
-fn mise_wrapper_command(mise_path: &Path, user_cmd: LaunchCommand) -> LaunchCommand {
+fn mise_wrapper_command(
+    mise_path: &Path,
+    user_cmd: LaunchCommand,
+) -> LaunchCommand {
     // Command argv is passed via "$@" to avoid shell interpretation of user arguments.
     let script = "MISE=\"$1\"; shift; \"$MISE\" trust && eval \"$($MISE activate bash)\" && eval \"$($MISE env)\" && exec \"$@\"";
     let mut args = vec![
@@ -128,7 +139,12 @@ pub fn platform_notes(config: &Config) {
     }
 }
 
-pub fn build(guard: &SandboxGuard, config: &Config, project_dir: &Path, verbose: bool) -> Command {
+pub fn build(
+    guard: &SandboxGuard,
+    config: &Config,
+    project_dir: &Path,
+    verbose: bool,
+) -> Command {
     #[cfg(target_os = "linux")]
     {
         bwrap::build(guard, config, project_dir, verbose)
@@ -140,7 +156,12 @@ pub fn build(guard: &SandboxGuard, config: &Config, project_dir: &Path, verbose:
     }
 }
 
-pub fn dry_run(guard: &SandboxGuard, config: &Config, project_dir: &Path, verbose: bool) -> String {
+pub fn dry_run(
+    guard: &SandboxGuard,
+    config: &Config,
+    project_dir: &Path,
+    verbose: bool,
+) -> String {
     #[cfg(target_os = "linux")]
     {
         bwrap::dry_run(guard, config, project_dir, verbose)
@@ -217,7 +238,8 @@ mod tests {
             program: "echo".into(),
             args: vec!["$(id)".into(), "a b".into()],
         };
-        let wrapped = mise_wrapper_command(Path::new("/usr/bin/mise"), user_cmd);
+        let wrapped =
+            mise_wrapper_command(Path::new("/usr/bin/mise"), user_cmd);
         assert_eq!(wrapped.program, "bash");
         assert!(
             wrapped.args.iter().any(|a| a.contains("exec \"$@\"")),
@@ -228,8 +250,18 @@ mod tests {
 
     #[test]
     fn deny_list_contains_sensitive_dirs() {
-        for name in &[".gnupg", ".aws", ".ssh", ".mozilla", ".basilisk-dev", ".sparrow"] {
-            assert!(DOTDIR_DENY.contains(name), "{name} should be in deny list");
+        for name in &[
+            ".gnupg",
+            ".aws",
+            ".ssh",
+            ".mozilla",
+            ".basilisk-dev",
+            ".sparrow",
+        ] {
+            assert!(
+                DOTDIR_DENY.contains(name),
+                "{name} should be in deny list"
+            );
         }
     }
 
@@ -250,7 +282,10 @@ mod tests {
     #[test]
     fn deny_and_rw_lists_do_not_overlap() {
         for name in DOTDIR_DENY {
-            assert!(!DOTDIR_RW.contains(name), "{name} is in both deny and rw lists");
+            assert!(
+                !DOTDIR_RW.contains(name),
+                "{name} is in both deny and rw lists"
+            );
         }
     }
 }

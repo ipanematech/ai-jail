@@ -151,10 +151,16 @@ fn ensure_regular_file_or_absent(path: &Path) -> Result<(), String> {
         Ok(meta) => {
             let ft = meta.file_type();
             if ft.is_symlink() {
-                return Err(format!("{} is a symlink — refusing to write", path.display()));
+                return Err(format!(
+                    "{} is a symlink — refusing to write",
+                    path.display()
+                ));
             }
             if !ft.is_file() {
-                return Err(format!("{} exists but is not a regular file", path.display()));
+                return Err(format!(
+                    "{} exists but is not a regular file",
+                    path.display()
+                ));
             }
             Ok(())
         }
@@ -168,7 +174,10 @@ fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
 
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     if let Err(e) = fs::create_dir_all(parent) {
-        return Err(format!("Cannot create directory {}: {e}", parent.display()));
+        return Err(format!(
+            "Cannot create directory {}: {e}",
+            parent.display()
+        ));
     }
 
     let stem = path
@@ -179,13 +188,16 @@ fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp_path = parent.join(format!(".{stem}.tmp.{}.{}", std::process::id(), nonce));
+    let tmp_path =
+        parent.join(format!(".{stem}.tmp.{}.{}", std::process::id(), nonce));
 
     let mut f = OpenOptions::new()
         .create_new(true)
         .write(true)
         .open(&tmp_path)
-        .map_err(|e| format!("Failed to create temp file {}: {e}", tmp_path.display()))?;
+        .map_err(|e| {
+            format!("Failed to create temp file {}: {e}", tmp_path.display())
+        })?;
 
     if let Err(e) = f.write_all(contents.as_bytes()) {
         let _ = fs::remove_file(&tmp_path);
@@ -212,7 +224,8 @@ fn backup_file(path: &Path) -> Result<bool, String> {
     bak.push(".bak");
     let bak_path = PathBuf::from(bak);
     ensure_regular_file_or_absent(&bak_path)?;
-    fs::copy(path, &bak_path).map_err(|e| format!("Failed to backup {}: {e}", path.display()))?;
+    fs::copy(path, &bak_path)
+        .map_err(|e| format!("Failed to backup {}: {e}", path.display()))?;
     Ok(true)
 }
 
@@ -224,9 +237,18 @@ fn claude_config_path() -> PathBuf {
 }
 
 fn build_claude_permissions() -> serde_json::Value {
-    let allow: Vec<serde_json::Value> = ALLOW.iter().map(|s| serde_json::Value::String(s.to_string())).collect();
-    let deny: Vec<serde_json::Value> = DENY.iter().map(|s| serde_json::Value::String(s.to_string())).collect();
-    let ask: Vec<serde_json::Value> = ASK.iter().map(|s| serde_json::Value::String(s.to_string())).collect();
+    let allow: Vec<serde_json::Value> = ALLOW
+        .iter()
+        .map(|s| serde_json::Value::String(s.to_string()))
+        .collect();
+    let deny: Vec<serde_json::Value> = DENY
+        .iter()
+        .map(|s| serde_json::Value::String(s.to_string()))
+        .collect();
+    let ask: Vec<serde_json::Value> = ASK
+        .iter()
+        .map(|s| serde_json::Value::String(s.to_string()))
+        .collect();
 
     serde_json::json!({
         "allow": allow,
@@ -253,7 +275,9 @@ fn bootstrap_claude(verbose: bool) -> Result<(), String> {
         output::verbose(&format!("Backed up {}", path.display()));
     }
 
-    let obj = root.as_object_mut().ok_or("Claude config is not a JSON object")?;
+    let obj = root
+        .as_object_mut()
+        .ok_or("Claude config is not a JSON object")?;
     obj.insert("permissions".to_string(), build_claude_permissions());
 
     let pretty = serde_json::to_string_pretty(&root)
@@ -620,11 +644,13 @@ mod tests {
                 "ask": []
             }
         });
-        fs::write(&path, serde_json::to_string_pretty(&existing).unwrap()).unwrap();
+        fs::write(&path, serde_json::to_string_pretty(&existing).unwrap())
+            .unwrap();
 
         // Simulate merge
         let content = fs::read_to_string(&path).unwrap();
-        let mut root: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let mut root: serde_json::Value =
+            serde_json::from_str(&content).unwrap();
         root.as_object_mut()
             .unwrap()
             .insert("permissions".to_string(), build_claude_permissions());
@@ -640,7 +666,8 @@ mod tests {
         assert!(result.contains_key("enabledPlugins"));
         assert_eq!(result["alwaysThinkingEnabled"], true);
         assert_eq!(
-            result["enabledPlugins"]["rust-analyzer-lsp@claude-plugins-official"],
+            result["enabledPlugins"]
+                ["rust-analyzer-lsp@claude-plugins-official"],
             true
         );
 
@@ -673,20 +700,11 @@ sandbox_mode = "full"
         );
 
         let table = root.as_table().unwrap();
-        assert_eq!(
-            table["approval_policy"].as_str().unwrap(),
-            "on-request"
-        );
+        assert_eq!(table["approval_policy"].as_str().unwrap(), "on-request");
         assert_eq!(table["model"].as_str().unwrap(), "o3");
-        assert_eq!(
-            table["model_reasoning_effort"].as_str().unwrap(),
-            "high"
-        );
+        assert_eq!(table["model_reasoning_effort"].as_str().unwrap(), "high");
         assert!(table.contains_key("projects"));
-        assert!(table["projects"]
-            .as_table()
-            .unwrap()
-            .contains_key("my-app"));
+        assert!(table["projects"].as_table().unwrap().contains_key("my-app"));
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -707,10 +725,12 @@ sandbox_mode = "full"
                 "local": { "command": "mcp-server" }
             }
         });
-        fs::write(&path, serde_json::to_string_pretty(&existing).unwrap()).unwrap();
+        fs::write(&path, serde_json::to_string_pretty(&existing).unwrap())
+            .unwrap();
 
         let content = fs::read_to_string(&path).unwrap();
-        let mut root: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let mut root: serde_json::Value =
+            serde_json::from_str(&content).unwrap();
         root.as_object_mut()
             .unwrap()
             .insert("permission".to_string(), build_opencode_permissions());

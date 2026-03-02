@@ -59,7 +59,8 @@ fn run() -> Result<i32, String> {
 
     // Handle dry run
     if cli.dry_run {
-        let formatted = sandbox::dry_run(&guard, &config, &project_dir, cli.verbose);
+        let formatted =
+            sandbox::dry_run(&guard, &config, &project_dir, cli.verbose);
         output::dry_run_line(&formatted);
         return Ok(0);
     }
@@ -72,7 +73,9 @@ fn run() -> Result<i32, String> {
     // Spawn sandbox
     let mut cmd = sandbox::build(&guard, &config, &project_dir, cli.verbose);
 
-    let child = cmd.spawn().map_err(|e| format!("Failed to start sandbox: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start sandbox: {e}"))?;
 
     let pid = child.id() as i32;
     signals::set_child_pid(pid);

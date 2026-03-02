@@ -60,11 +60,13 @@ pub fn parse_from(mut parser: lexopt::Parser) -> Result<CliArgs, String> {
     while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
         match arg {
             Long("rw-map") => {
-                let val: PathBuf = parser.value().map_err(|e| e.to_string())?.into();
+                let val: PathBuf =
+                    parser.value().map_err(|e| e.to_string())?.into();
                 args.rw_maps.push(val);
             }
             Long("map") => {
-                let val: PathBuf = parser.value().map_err(|e| e.to_string())?.into();
+                let val: PathBuf =
+                    parser.value().map_err(|e| e.to_string())?.into();
                 args.ro_maps.push(val);
             }
             Long("lockdown") => args.lockdown = Some(true),
@@ -272,12 +274,14 @@ mod tests {
     #[test]
     fn parse_multiple_maps() {
         let args = parse_test(&[
-            "--rw-map", "/tmp/a",
-            "--rw-map", "/tmp/b",
-            "--map", "/opt/c",
+            "--rw-map", "/tmp/a", "--rw-map", "/tmp/b", "--map", "/opt/c",
             "bash",
-        ]).unwrap();
-        assert_eq!(args.rw_maps, vec![PathBuf::from("/tmp/a"), PathBuf::from("/tmp/b")]);
+        ])
+        .unwrap();
+        assert_eq!(
+            args.rw_maps,
+            vec![PathBuf::from("/tmp/a"), PathBuf::from("/tmp/b")]
+        );
         assert_eq!(args.ro_maps, vec![PathBuf::from("/opt/c")]);
     }
 
@@ -286,9 +290,15 @@ mod tests {
     #[test]
     fn parse_multiple_flags_combined() {
         let args = parse_test(&[
-            "--dry-run", "--verbose", "--no-gpu", "--no-docker",
-            "--rw-map", "/tmp/test", "claude",
-        ]).unwrap();
+            "--dry-run",
+            "--verbose",
+            "--no-gpu",
+            "--no-docker",
+            "--rw-map",
+            "/tmp/test",
+            "claude",
+        ])
+        .unwrap();
         assert!(args.dry_run);
         assert!(args.verbose);
         assert_eq!(args.gpu, Some(false));
@@ -345,7 +355,8 @@ mod tests {
 
     #[test]
     fn parse_dashdash_passes_remaining_as_command() {
-        let args = parse_test(&["--dry-run", "--", "my-tool", "--some-flag"]).unwrap();
+        let args =
+            parse_test(&["--dry-run", "--", "my-tool", "--some-flag"]).unwrap();
         assert!(args.dry_run);
         assert_eq!(args.command, vec!["my-tool", "--some-flag"]);
     }

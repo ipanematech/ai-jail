@@ -22,7 +22,9 @@ pub fn platform_notes(config: &Config) {
         output::info("--no-gpu has no effect on macOS (Metal is system-level)");
     }
     if !config.display_enabled() {
-        output::info("--no-display has no effect on macOS (Cocoa is system-level)");
+        output::info(
+            "--no-display has no effect on macOS (Cocoa is system-level)",
+        );
     }
 }
 
@@ -40,7 +42,10 @@ pub fn build(config: &Config, project_dir: &Path, verbose: bool) -> Command {
 
     if lockdown {
         cmd.env_clear();
-        cmd.env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin");
+        cmd.env(
+            "PATH",
+            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        );
         cmd.env("HOME", super::home_dir());
         if let Ok(term) = std::env::var("TERM") {
             cmd.env("TERM", term);
@@ -124,20 +129,37 @@ fn generate_sbpl_profile(
     profile.push_str("; Process operations\n");
     profile.push_str("(allow process-exec)\n");
     profile.push_str("(allow process-fork)\n");
+    profile.push_str("(allow process-info* (target same-sandbox))\n");
     profile.push_str("(allow signal)\n");
     profile.push_str("(allow sysctl-read)\n\n");
 
     profile.push_str("; IPC and Mach\n");
     profile.push_str("(allow mach-lookup)\n");
     profile.push_str("(allow mach-register)\n");
+    profile.push_str("(allow mach-host*)\n");
     profile.push_str("(allow ipc-posix-shm-read-data)\n");
     profile.push_str("(allow ipc-posix-shm-write-data)\n");
     profile.push_str("(allow ipc-posix-shm-read-metadata)\n");
-    profile.push_str("(allow ipc-posix-shm-write-create)\n\n");
+    profile.push_str("(allow ipc-posix-shm-write-create)\n");
+    profile.push_str("(allow ipc-posix-sem)\n\n");
 
-    profile.push_str("; Pseudo-terminal and ioctl (needed for tty raw mode)\n");
+    profile.push_str("; Pseudo-terminal and ioctl\n");
     profile.push_str("(allow pseudo-tty)\n");
-    profile.push_str("(allow file-ioctl)\n\n");
+    profile.push_str("(allow file-ioctl)\n");
+    profile
+        .push_str("(allow file-read* file-write* (literal \"/dev/ptmx\"))\n");
+    profile.push_str(
+        "(allow file-read* file-write* (regex #\"^/dev/ttys[0-9]+\"))\n\n",
+    );
+
+    profile.push_str("; Standard devices\n");
+    profile.push_str("(allow file-write* (literal \"/dev/null\"))\n");
+    profile.push_str("(allow file-write* (literal \"/dev/zero\"))\n");
+    profile.push_str("(allow file-write* (literal \"/dev/random\"))\n");
+    profile.push_str("(allow file-write* (literal \"/dev/urandom\"))\n\n");
+
+    profile.push_str("; IOKit (power management, hardware queries)\n");
+    profile.push_str("(allow iokit-open)\n\n");
 
     if !lockdown {
         profile.push_str("; Network\n");
@@ -153,9 +175,13 @@ fn generate_sbpl_profile(
     for deny_path in &deny_paths {
         let escaped = sbpl_path(deny_path);
         if canonicalize_or_keep(deny_path).is_dir() {
-            profile.push_str(&format!("(deny file-read* (subpath \"{escaped}\"))\n"));
+            profile.push_str(&format!(
+                "(deny file-read* (subpath \"{escaped}\"))\n"
+            ));
         } else {
-            profile.push_str(&format!("(deny file-read* (literal \"{escaped}\"))\n"));
+            profile.push_str(&format!(
+                "(deny file-read* (literal \"{escaped}\"))\n"
+            ));
         }
     }
     profile.push('\n');
@@ -168,9 +194,13 @@ fn generate_sbpl_profile(
             let canonical = canonicalize_or_keep(wr_path);
             let escaped = sbpl_escape(canonical.to_string_lossy().as_ref());
             if canonical.is_dir() || !canonical.exists() {
-                profile.push_str(&format!("(allow file-write* (subpath \"{escaped}\"))\n"));
+                profile.push_str(&format!(
+                    "(allow file-write* (subpath \"{escaped}\"))\n"
+                ));
             } else {
-                profile.push_str(&format!("(allow file-write* (literal \"{escaped}\"))\n"));
+                profile.push_str(&format!(
+                    "(allow file-write* (literal \"{escaped}\"))\n"
+                ));
             }
         }
         profile.push('\n');
@@ -180,7 +210,9 @@ fn generate_sbpl_profile(
         if let Some(sock) = macos_docker_socket() {
             let escaped = sbpl_path(&sock);
             profile.push_str("; Docker socket\n");
-            profile.push_str(&format!("(allow file-write* (literal \"{escaped}\"))\n"));
+            profile.push_str(&format!(
+                "(allow file-write* (literal \"{escaped}\"))\n"
+            ));
             profile.push('\n');
         }
     }
@@ -190,7 +222,9 @@ fn generate_sbpl_profile(
 
 fn quote_arg(arg: &str) -> String {
     if arg.is_empty()
-        || arg.contains(|c: char| c.is_whitespace() || "'\"\\$`(){}[]|&;<>*!?".contains(c))
+        || arg.contains(|c: char| {
+            c.is_whitespace() || "'\"\\$`(){}[]|&;<>*!?".contains(c)
+        })
     {
         return format!("'{}'", arg.replace('\'', "'\\''"));
     }
@@ -210,7 +244,10 @@ fn format_dry_run_macos(command_line: &str, profile: &str) -> String {
 fn macos_read_deny_paths() -> Vec<PathBuf> {
     let home = super::home_dir();
 
-    let mut candidates: Vec<PathBuf> = super::DOTDIR_DENY.iter().map(|name| home.join(name)).collect();
+    let mut candidates: Vec<PathBuf> = super::DOTDIR_DENY
+        .iter()
+        .map(|name| home.join(name))
+        .collect();
 
     candidates.extend([
         home.join("Library/Keychains"),
@@ -226,7 +263,11 @@ fn macos_read_deny_paths() -> Vec<PathBuf> {
         .collect()
 }
 
-fn macos_writable_paths(project_dir: &Path, config: &Config, lockdown: bool) -> Vec<PathBuf> {
+fn macos_writable_paths(
+    project_dir: &Path,
+    config: &Config,
+    lockdown: bool,
+) -> Vec<PathBuf> {
     if lockdown {
         return Vec::new();
     }
@@ -255,6 +296,23 @@ fn macos_writable_paths(project_dir: &Path, config: &Config, lockdown: bool) -> 
 
     paths.push(PathBuf::from("/tmp"));
     paths.push(PathBuf::from("/private/tmp"));
+    paths.push(PathBuf::from("/private/var/tmp"));
+
+    // macOS per-user temp dir ($TMPDIR -> /private/var/folders/.../T/)
+    if let Ok(tmpdir) = std::env::var("TMPDIR") {
+        let p = PathBuf::from(&tmpdir);
+        if super::path_exists(&p) {
+            paths.push(canonicalize_or_keep(&p));
+        }
+    }
+    // Fallback: allow the entire /private/var/folders tree
+    paths.push(PathBuf::from("/private/var/folders"));
+
+    // macOS-native caches (Xcode tooling, Homebrew, etc.)
+    let lib_caches = home.join("Library/Caches");
+    if super::path_exists(&lib_caches) {
+        paths.push(lib_caches);
+    }
 
     for p in &config.rw_maps {
         if super::path_exists(p) {
@@ -305,7 +363,10 @@ mod tests {
         let project = PathBuf::from("/tmp/test-project");
         let profile = generate_sbpl_profile(&config, &project, false, true);
         assert!(!profile.contains("(allow network-outbound)"));
-        assert!(!profile.contains("(allow file-write*"));
+        // Lockdown should have no path-based write allowances (project, dotfiles, tmp)
+        // but still allows device writes (/dev/null etc.) and PTY writes
+        assert!(profile.contains("no host file-write allowances"));
+        assert!(!profile.contains("(allow file-write* (subpath"));
     }
 
     #[test]

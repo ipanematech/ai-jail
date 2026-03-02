@@ -24,13 +24,25 @@ impl Mount {
     fn to_args(&self) -> Vec<String> {
         match self {
             Mount::RoBind { src, dest } | Mount::FileRoBind { src, dest } => {
-                vec!["--ro-bind".into(), src.display().to_string(), dest.display().to_string()]
+                vec![
+                    "--ro-bind".into(),
+                    src.display().to_string(),
+                    dest.display().to_string(),
+                ]
             }
             Mount::Bind { src, dest } => {
-                vec!["--bind".into(), src.display().to_string(), dest.display().to_string()]
+                vec![
+                    "--bind".into(),
+                    src.display().to_string(),
+                    dest.display().to_string(),
+                ]
             }
             Mount::DevBind { src, dest } => {
-                vec!["--dev-bind".into(), src.display().to_string(), dest.display().to_string()]
+                vec![
+                    "--dev-bind".into(),
+                    src.display().to_string(),
+                    dest.display().to_string(),
+                ]
             }
             Mount::Dev { dest } => {
                 vec!["--dev".into(), dest.display().to_string()]
@@ -42,7 +54,11 @@ impl Mount {
                 vec!["--tmpfs".into(), dest.display().to_string()]
             }
             Mount::Symlink { src, dest } => {
-                vec!["--symlink".into(), src.clone(), dest.display().to_string()]
+                vec![
+                    "--symlink".into(),
+                    src.clone(),
+                    dest.display().to_string(),
+                ]
             }
         }
     }
@@ -90,7 +106,11 @@ impl MountSet {
         args
     }
 
-    fn isolation_args(&self, project_dir: &Path, lockdown: bool) -> Vec<String> {
+    fn isolation_args(
+        &self,
+        project_dir: &Path,
+        lockdown: bool,
+    ) -> Vec<String> {
         let use_new_session = should_use_new_session(lockdown);
         let mut args = vec![
             "--chdir".into(),
@@ -114,7 +134,8 @@ impl MountSet {
             args.extend([
                 "--setenv".into(),
                 "PATH".into(),
-                "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".into(),
+                "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                    .into(),
             ]);
             args.extend([
                 "--setenv".into(),
@@ -195,7 +216,8 @@ const LOCAL_SHARE_RW: &[&str] = &[
 ];
 
 const BWRAP_ENV_VAR: &str = "BWRAP_BIN";
-const BWRAP_CANDIDATES: &[&str] = &["/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap"];
+const BWRAP_CANDIDATES: &[&str] =
+    &["/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap"];
 
 fn bwrap_binary_path() -> Result<PathBuf, String> {
     let mut override_error: Option<String> = None;
@@ -226,7 +248,7 @@ fn bwrap_binary_path() -> Result<PathBuf, String> {
          Or set BWRAP_BIN=/absolute/path/to/bwrap",
     );
     if let Some(err) = override_error {
-        msg.push_str("\n");
+        msg.push('\n');
         msg.push_str(&err);
     }
     Err(msg)
@@ -251,20 +273,29 @@ fn new_hosts_file() -> Result<(PathBuf, std::fs::File), String> {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let name = format!("bwrap-hosts.{}.{}.{}", std::process::id(), nonce, attempt);
+        let name =
+            format!("bwrap-hosts.{}.{}.{}", std::process::id(), nonce, attempt);
         let path = tmp.join(name);
 
         match OpenOptions::new().create_new(true).write(true).open(&path) {
             Ok(file) => {
-                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+                let _ = std::fs::set_permissions(
+                    &path,
+                    std::fs::Permissions::from_mode(0o600),
+                );
                 return Ok((path, file));
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(format!("Failed to create temp hosts file: {e}")),
+            Err(e) => {
+                return Err(format!("Failed to create temp hosts file: {e}"))
+            }
         }
     }
 
-    Err("Failed to create unique temp hosts file after multiple attempts".into())
+    Err(
+        "Failed to create unique temp hosts file after multiple attempts"
+            .into(),
+    )
 }
 
 pub fn check() -> Result<(), String> {
@@ -275,13 +306,17 @@ pub fn check() -> Result<(), String> {
             "bwrap found at {} but returned an error. Check your installation.",
             bwrap.display()
         )),
-        Err(e) => Err(format!("Failed to execute bwrap at {}: {e}", bwrap.display())),
+        Err(e) => Err(format!(
+            "Failed to execute bwrap at {}: {e}",
+            bwrap.display()
+        )),
     }
 }
 
 pub fn prepare() -> Result<SandboxGuard, String> {
     let (path, mut file) = new_hosts_file()?;
-    let contents = b"127.0.0.1 localhost ai-sandbox\n::1       localhost ai-sandbox\n";
+    let contents =
+        b"127.0.0.1 localhost ai-sandbox\n::1       localhost ai-sandbox\n";
 
     file.write_all(contents)
         .map_err(|e| format!("Failed to create temp hosts file: {e}"))?;
@@ -291,8 +326,14 @@ pub fn prepare() -> Result<SandboxGuard, String> {
     Ok(SandboxGuard { hosts_path: path })
 }
 
-pub fn build(guard: &SandboxGuard, config: &Config, project_dir: &Path, verbose: bool) -> Command {
-    let mount_set = discover_mounts(config, project_dir, guard.hosts_path(), verbose);
+pub fn build(
+    guard: &SandboxGuard,
+    config: &Config,
+    project_dir: &Path,
+    verbose: bool,
+) -> Command {
+    let mount_set =
+        discover_mounts(config, project_dir, guard.hosts_path(), verbose);
     let lockdown = config.lockdown_enabled();
     let bwrap = bwrap_program_for_exec();
     let launch = super::build_launch_command(config);
@@ -315,8 +356,14 @@ pub fn build(guard: &SandboxGuard, config: &Config, project_dir: &Path, verbose:
     cmd
 }
 
-pub fn dry_run(guard: &SandboxGuard, config: &Config, project_dir: &Path, verbose: bool) -> String {
-    let args = build_dry_run_args(config, project_dir, guard.hosts_path(), verbose);
+pub fn dry_run(
+    guard: &SandboxGuard,
+    config: &Config,
+    project_dir: &Path,
+    verbose: bool,
+) -> String {
+    let args =
+        build_dry_run_args(config, project_dir, guard.hosts_path(), verbose);
     format_dry_run_args(&args)
 }
 
@@ -329,7 +376,8 @@ fn build_dry_run_args(
     let mount_set = discover_mounts(config, project_dir, hosts_file, verbose);
     let lockdown = config.lockdown_enabled();
     let launch = super::build_launch_command(config);
-    let mut args: Vec<String> = vec![bwrap_program_for_exec().display().to_string()];
+    let mut args: Vec<String> =
+        vec![bwrap_program_for_exec().display().to_string()];
 
     args.extend(mount_set.all_mount_args());
     args.extend(mount_set.isolation_args(project_dir, lockdown));
@@ -343,7 +391,9 @@ fn build_dry_run_args(
 
 fn quote_arg(arg: &str) -> String {
     if arg.is_empty()
-        || arg.contains(|c: char| c.is_whitespace() || "'\"\\$`(){}[]|&;<>*!?".contains(c))
+        || arg.contains(|c: char| {
+            c.is_whitespace() || "'\"\\$`(){}[]|&;<>*!?".contains(c)
+        })
     {
         return format!("'{}'", arg.replace('\'', "'\\''"));
     }
@@ -379,7 +429,10 @@ fn format_dry_run_args(args: &[String]) -> String {
             out.push_str("  ");
             out.push_str(arg);
             let mut j = i + 1;
-            while j < args.len() && !args[j].starts_with("--") && args[j] != "--" {
+            while j < args.len()
+                && !args[j].starts_with("--")
+                && args[j] != "--"
+            {
                 out.push(' ');
                 out.push_str(&quote_arg(&args[j]));
                 j += 1;
@@ -403,7 +456,12 @@ fn format_dry_run_args(args: &[String]) -> String {
     out
 }
 
-fn discover_mounts(config: &Config, project_dir: &Path, hosts_file: &Path, verbose: bool) -> MountSet {
+fn discover_mounts(
+    config: &Config,
+    project_dir: &Path,
+    hosts_file: &Path,
+    verbose: bool,
+) -> MountSet {
     let lockdown = config.lockdown_enabled();
     let enable_gpu = !lockdown && config.gpu_enabled();
     let enable_docker = !lockdown && config.docker_enabled();
@@ -438,7 +496,11 @@ fn discover_mounts(config: &Config, project_dir: &Path, hosts_file: &Path, verbo
         } else {
             vec![]
         },
-        docker: if enable_docker { discover_docker() } else { vec![] },
+        docker: if enable_docker {
+            discover_docker()
+        } else {
+            vec![]
+        },
         shm: if lockdown { vec![] } else { discover_shm() },
         display: display_mounts,
         display_env,
@@ -727,7 +789,10 @@ fn extra_mounts(rw_maps: &[PathBuf], ro_maps: &[PathBuf]) -> Vec<Mount> {
                 dest: path.clone(),
             });
         } else {
-            output::warn(&format!("Path {} not found, skipping.", path.display()));
+            output::warn(&format!(
+                "Path {} not found, skipping.",
+                path.display()
+            ));
         }
     }
 
@@ -738,7 +803,10 @@ fn extra_mounts(rw_maps: &[PathBuf], ro_maps: &[PathBuf]) -> Vec<Mount> {
                 dest: path.clone(),
             });
         } else {
-            output::warn(&format!("Path {} not found, skipping.", path.display()));
+            output::warn(&format!(
+                "Path {} not found, skipping.",
+                path.display()
+            ));
         }
     }
 
@@ -802,10 +870,12 @@ mod tests {
     #[test]
     fn dry_run_contains_separator_before_command() {
         let config = minimal_test_config();
-        let guard = SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
+        let guard =
+            SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
         let project = PathBuf::from("/home/user/project");
 
-        let args = build_dry_run_args(&config, &project, guard.hosts_path(), false);
+        let args =
+            build_dry_run_args(&config, &project, guard.hosts_path(), false);
         let sep = args.iter().position(|a| a == "--");
         assert!(sep.is_some(), "dry-run args must include -- separator");
     }
@@ -813,10 +883,12 @@ mod tests {
     #[test]
     fn dry_run_contains_isolation_flags() {
         let config = minimal_test_config();
-        let guard = SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
+        let guard =
+            SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
         let project = PathBuf::from("/home/user/project");
 
-        let args = build_dry_run_args(&config, &project, guard.hosts_path(), false);
+        let args =
+            build_dry_run_args(&config, &project, guard.hosts_path(), false);
 
         assert!(args.contains(&"--die-with-parent".to_string()));
         assert!(args.contains(&"--unshare-pid".to_string()));
@@ -833,13 +905,17 @@ mod tests {
     fn lockdown_project_is_read_only() {
         let mut config = minimal_test_config();
         config.lockdown = Some(true);
-        let guard = SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
+        let guard =
+            SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
         let project = PathBuf::from("/home/user/project");
 
-        let args = build_dry_run_args(&config, &project, guard.hosts_path(), false);
-        let has_project_ro = args
-            .windows(3)
-            .any(|w| w[0] == "--ro-bind" && w[1] == "/home/user/project" && w[2] == "/home/user/project");
+        let args =
+            build_dry_run_args(&config, &project, guard.hosts_path(), false);
+        let has_project_ro = args.windows(3).any(|w| {
+            w[0] == "--ro-bind"
+                && w[1] == "/home/user/project"
+                && w[2] == "/home/user/project"
+        });
         assert!(has_project_ro);
     }
 
@@ -847,10 +923,12 @@ mod tests {
     fn lockdown_disables_network_and_clears_env() {
         let mut config = minimal_test_config();
         config.lockdown = Some(true);
-        let guard = SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
+        let guard =
+            SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
         let project = PathBuf::from("/home/user/project");
 
-        let args = build_dry_run_args(&config, &project, guard.hosts_path(), false);
+        let args =
+            build_dry_run_args(&config, &project, guard.hosts_path(), false);
 
         assert!(args.contains(&"--unshare-net".to_string()));
         assert!(args.contains(&"--clearenv".to_string()));
@@ -861,10 +939,12 @@ mod tests {
         let mut config = minimal_test_config();
         config.lockdown = Some(true);
         config.rw_maps = vec![PathBuf::from("/tmp")];
-        let guard = SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
+        let guard =
+            SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
         let project = PathBuf::from("/home/user/project");
 
-        let args = build_dry_run_args(&config, &project, guard.hosts_path(), false);
+        let args =
+            build_dry_run_args(&config, &project, guard.hosts_path(), false);
 
         let has_tmp_bind = args
             .windows(3)
@@ -905,9 +985,11 @@ mod tests {
     #[test]
     fn regression_dry_run_uses_absolute_bwrap_path() {
         let config = minimal_test_config();
-        let guard = SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
+        let guard =
+            SandboxGuard::test_with_hosts(PathBuf::from("/tmp/test-hosts"));
         let project = PathBuf::from("/home/user/project");
-        let args = build_dry_run_args(&config, &project, guard.hosts_path(), false);
+        let args =
+            build_dry_run_args(&config, &project, guard.hosts_path(), false);
         assert!(
             args.first().is_some_and(|s| s.starts_with('/')),
             "dry-run must show absolute bwrap path"
@@ -916,7 +998,8 @@ mod tests {
 
     #[test]
     fn bwrap_bin_env_override_is_used() {
-        let tmp = std::env::temp_dir().join(format!("ai-jail-bwrap.{}", std::process::id()));
+        let tmp = std::env::temp_dir()
+            .join(format!("ai-jail-bwrap.{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp);
         let bwrap = tmp.join("bwrap");
         std::fs::write(&bwrap, b"#!/bin/sh\n").unwrap();
@@ -932,11 +1015,16 @@ mod tests {
 
     #[test]
     fn bwrap_bin_env_override_invalid_path_falls_back() {
-        unsafe { std::env::set_var(BWRAP_ENV_VAR, "/definitely/not/a/real/bwrap") };
+        unsafe {
+            std::env::set_var(BWRAP_ENV_VAR, "/definitely/not/a/real/bwrap")
+        };
         let selected = bwrap_program_for_exec();
         unsafe { std::env::remove_var(BWRAP_ENV_VAR) };
 
         assert!(selected.is_absolute());
-        assert_eq!(selected.file_name().and_then(|s| s.to_str()), Some("bwrap"));
+        assert_eq!(
+            selected.file_name().and_then(|s| s.to_str()),
+            Some("bwrap")
+        );
     }
 }

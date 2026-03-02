@@ -71,6 +71,16 @@ The bwrap command mounts are order-dependent. The sequence in `sandbox.rs` must 
 
 Changing this order can break the sandbox. The tmpfs for `$HOME` must come before the individual dotfile bind mounts.
 
+## Before Committing
+
+Always run `cargo fmt` before committing. CI enforces `cargo fmt --check` and will fail on unformatted code. The project uses `max_width = 80` via `rustfmt.toml`.
+
+```
+cargo fmt
+cargo clippy -- -D warnings
+cargo test
+```
+
 ## Running Tests
 
 ```
