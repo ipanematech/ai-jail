@@ -602,7 +602,12 @@ pub fn run(cmd: &mut std::process::Command) -> Result<i32, String> {
             if nix::libc::setsid() == -1 {
                 return Err(std::io::Error::last_os_error());
             }
-            if nix::libc::ioctl(slave_raw, nix::libc::TIOCSCTTY, 0) == -1 {
+            if nix::libc::ioctl(
+                slave_raw,
+                nix::libc::TIOCSCTTY as nix::libc::c_ulong,
+                0,
+            ) == -1
+            {
                 return Err(std::io::Error::last_os_error());
             }
             nix::libc::dup2(slave_raw, 0);
