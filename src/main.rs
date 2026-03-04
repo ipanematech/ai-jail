@@ -123,7 +123,12 @@ fn run() -> Result<i32, String> {
         }
     }
     if use_status_bar {
-        statusbar::setup(&project_dir, config.status_bar_style());
+        statusbar::setup(
+            &project_dir,
+            &config.command,
+            config.status_bar_style(),
+        );
+        statusbar::check_update_background();
     }
 
     // Build bwrap command (reads $HOME, /dev, etc. for mount discovery).

@@ -1,27 +1,31 @@
 //! Persistent terminal status bar using ANSI scroll region.
 //!
-//! Shrinks the scrollable area by one row and renders a fixed
-//! status line on the last row. `redraw()` is async-signal-safe
-//! so it can be called from the SIGWINCH handler.
+//! Layout: ` /path | command              ai-jail 0.4.5 `
+//!
+//! `redraw()` is async-signal-safe so it can be called from
+//! the SIGWINCH handler.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
-/// true = dark (bright white on black), false = light (black on bright white)
 static STYLE_DARK: AtomicBool = AtomicBool::new(true);
 
 const MAX_DIR: usize = 4096;
-/// Project directory bytes (written once in `setup`, read in
-/// signal handler after `ACTIVE` is set).
 static mut DIR_BUF: [u8; MAX_DIR] = [0u8; MAX_DIR];
 static DIR_LEN: AtomicUsize = AtomicUsize::new(0);
 
-// " ai-jail ─ " (11 visible columns)
-const PREFIX: &[u8] = b" ai-jail \xe2\x94\x80 ";
-const PREFIX_VIS: usize = 11;
+const MAX_CMD: usize = 1024;
+static mut CMD_BUF: [u8; MAX_CMD] = [0u8; MAX_CMD];
+static CMD_LEN: AtomicUsize = AtomicUsize::new(0);
 
-// "─" as UTF-8
-const BOX_DASH: [u8; 3] = [0xe2, 0x94, 0x80];
+static UPDATE_AVAILABLE: AtomicBool = AtomicBool::new(false);
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// U+2026 HORIZONTAL ELLIPSIS: 3 UTF-8 bytes, 1 visible column
+const ELLIPSIS: [u8; 3] = [0xe2, 0x80, 0xa6];
+// U+2191 UPWARDS ARROW: 3 UTF-8 bytes, 1 visible column
+const UP_ARROW: [u8; 3] = [0xe2, 0x86, 0x91];
 
 fn term_size() -> Option<(u16, u16)> {
     let mut ws = unsafe { std::mem::zeroed::<nix::libc::winsize>() };
@@ -79,7 +83,7 @@ fn write_u16(n: u16, buf: &mut [u8]) -> usize {
 
 /// Set up the status bar. Call before spawning the child.
 /// `style` must be `"dark"` or `"light"`.
-pub fn setup(project_dir: &std::path::Path, style: &str) {
+pub fn setup(project_dir: &std::path::Path, command: &[String], style: &str) {
     use std::os::unix::ffi::OsStrExt;
 
     STYLE_DARK.store(style != "light", Ordering::SeqCst);
@@ -93,6 +97,25 @@ pub fn setup(project_dir: &std::path::Path, style: &str) {
     }
     DIR_LEN.store(len, Ordering::SeqCst);
 
+    // Store command as joined string
+    let mut cmd_pos = 0;
+    for (i, arg) in command.iter().enumerate() {
+        if i > 0 && cmd_pos < MAX_CMD {
+            // SAFETY: single-threaded, same as DIR_BUF.
+            unsafe {
+                CMD_BUF[cmd_pos] = b' ';
+            }
+            cmd_pos += 1;
+        }
+        let bytes = arg.as_bytes();
+        let n = bytes.len().min(MAX_CMD - cmd_pos);
+        unsafe {
+            CMD_BUF[cmd_pos..cmd_pos + n].copy_from_slice(&bytes[..n]);
+        }
+        cmd_pos += n;
+    }
+    CMD_LEN.store(cmd_pos, Ordering::SeqCst);
+
     let Some((rows, cols)) = term_size() else {
         return;
     };
@@ -103,10 +126,7 @@ pub fn setup(project_dir: &std::path::Path, style: &str) {
     ACTIVE.store(true, Ordering::SeqCst);
     draw(rows, cols);
 
-    // Ensure cursor is within the scroll region. draw() restores
-    // the saved cursor, but if it was on the last row (now the
-    // status bar), child output would land there. Move to the
-    // bottom of the scroll region.
+    // Ensure cursor is within the scroll region.
     let mut cb = [0u8; 16];
     let mut cp = 0;
     cb[cp..cp + 2].copy_from_slice(b"\x1b[");
@@ -115,6 +135,61 @@ pub fn setup(project_dir: &std::path::Path, style: &str) {
     cb[cp..cp + 3].copy_from_slice(b";1H");
     cp += 3;
     raw_write(&cb[..cp]);
+}
+
+/// Signal that a newer version is available. Triggers redraw.
+pub fn set_update_available() {
+    UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
+    redraw();
+}
+
+/// Spawn a background thread to check GitHub for a newer release.
+/// Fire-and-forget; any error is silently ignored.
+pub fn check_update_background() {
+    std::thread::spawn(|| {
+        let output = match std::process::Command::new("curl")
+            .args([
+                "-sL",
+                "-m",
+                "5",
+                "-H",
+                "Accept: application/vnd.github.v3+json",
+                "https://api.github.com/repos/akitaonrails/ai-jail/releases/latest",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            Ok(o) if o.status.success() => o.stdout,
+            _ => return,
+        };
+
+        let json: serde_json::Value = match serde_json::from_slice(&output) {
+            Ok(v) => v,
+            _ => return,
+        };
+
+        let tag = match json.get("tag_name").and_then(|v| v.as_str()) {
+            Some(t) => t.trim_start_matches('v'),
+            None => return,
+        };
+
+        if is_newer(tag, VERSION) {
+            set_update_available();
+        }
+    });
+}
+
+/// Simple semver comparison: is `remote` newer than `local`?
+fn is_newer(remote: &str, local: &str) -> bool {
+    let parse = |s: &str| -> (u32, u32, u32) {
+        let mut parts = s.split('.');
+        let ma = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+        let mi = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+        let pa = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+        (ma, mi, pa)
+    };
+    parse(remote) > parse(local)
 }
 
 /// Tear down the status bar. Call after child exits.
@@ -126,14 +201,11 @@ pub fn teardown() {
 
     let rows = term_size().map(|(r, _)| r).unwrap_or(24);
 
-    // Reset scroll region, move to last row, clear it.
     let mut buf = [0u8; 64];
     let mut pos = 0;
 
-    // \x1b[r
     buf[pos..pos + 3].copy_from_slice(b"\x1b[r");
     pos += 3;
-    // \x1b[{rows};1H
     buf[pos] = b'\x1b';
     pos += 1;
     buf[pos] = b'[';
@@ -141,7 +213,6 @@ pub fn teardown() {
     pos += write_u16(rows, &mut buf[pos..]);
     buf[pos..pos + 3].copy_from_slice(b";1H");
     pos += 3;
-    // \x1b[2K (clear line)
     buf[pos..pos + 4].copy_from_slice(b"\x1b[2K");
     pos += 4;
 
@@ -165,9 +236,11 @@ pub fn redraw() {
 /// Render scroll region + status line. Async-signal-safe.
 fn draw(rows: u16, cols: u16) {
     let dir_len = DIR_LEN.load(Ordering::SeqCst);
+    let cmd_len = CMD_LEN.load(Ordering::SeqCst);
+    let has_update = UPDATE_AVAILABLE.load(Ordering::SeqCst);
+    let dark = STYLE_DARK.load(Ordering::SeqCst);
     let cols = cols as usize;
 
-    // Max output: ~50 bytes escapes + cols*3 bytes content
     let mut buf = [0u8; 8192];
     let mut pos = 0;
 
@@ -180,7 +253,7 @@ fn draw(rows: u16, cols: u16) {
         }};
     }
 
-    // 1. Save cursor (must be before DECSTBM which moves to home)
+    // 1. Save cursor
     put!(b"\x1b7");
 
     // 2. Set scroll region: \x1b[1;{rows-1}r
@@ -193,42 +266,135 @@ fn draw(rows: u16, cols: u16) {
     pos += write_u16(rows, &mut buf[pos..]);
     put!(b";1H");
 
-    // 4. Style: dark = bold bright white on black,
-    //          light = bold black on bright white
-    if STYLE_DARK.load(Ordering::SeqCst) {
-        put!(b"\x1b[1;97;40m");
+    // 4. Style (softer than previous bold variants)
+    if dark {
+        put!(b"\x1b[37;40m"); // white on black
     } else {
-        put!(b"\x1b[1;30;107m");
+        put!(b"\x1b[90;107m"); // dark gray on bright white
     }
 
-    // 5. Build visible content
+    // 5. Compute layout widths
+    let ver = VERSION.as_bytes();
+    // "ai-jail " (8) + VERSION + optional " ↑" (2)
+    let right_vis = 8 + ver.len() + if has_update { 2 } else { 0 };
+    let show_right = cols >= right_vis + 2;
+    let eff_right = if show_right { right_vis } else { 0 };
+
+    // Left budget: cols - 1(leading) - eff_right - 1(min gap)
+    let left_budget = if show_right {
+        cols.saturating_sub(eff_right + 2)
+    } else {
+        cols.saturating_sub(1)
+    };
+
     let mut vis = 0;
 
-    // Prefix
-    if PREFIX_VIS <= cols {
-        put!(PREFIX);
-        vis += PREFIX_VIS;
-    }
-
-    // Project dir (truncated if needed; reserve 1 for trailing
-    // space before fill)
-    let max_dir = if cols > vis + 1 { cols - vis - 1 } else { 0 };
-    let dir_vis = dir_len.min(max_dir);
-    if dir_vis > 0 {
-        let slice = unsafe { &DIR_BUF[..dir_vis] };
-        put!(slice);
-        vis += dir_vis;
-    }
-
-    // Separator space
-    if vis < cols {
+    // Leading space
+    if cols > 0 {
         put!(b" ");
         vis += 1;
     }
 
-    // Fill with "─"
-    while vis < cols && pos + 3 <= buf.len() {
-        put!(&BOX_DASH);
+    // --- PWD ---
+    let dir_bytes = unsafe { &DIR_BUF[..dir_len] };
+    let pwd_avail = left_budget;
+    let pwd_vis;
+
+    if dir_len == 0 || pwd_avail == 0 {
+        pwd_vis = 0;
+    } else if dir_len <= pwd_avail {
+        put!(dir_bytes);
+        pwd_vis = dir_len;
+    } else {
+        // Truncate: find last '/' for smart truncation
+        let mut last_slash = None;
+        for i in (0..dir_len).rev() {
+            if dir_bytes[i] == b'/' {
+                last_slash = Some(i);
+                break;
+            }
+        }
+        if let Some(sp) = last_slash {
+            let seg = &dir_bytes[sp + 1..dir_len];
+            // "…/" (2 vis cols) + segment
+            if seg.len() + 2 <= pwd_avail {
+                put!(&ELLIPSIS);
+                put!(b"/");
+                put!(seg);
+                pwd_vis = seg.len() + 2;
+            } else if pwd_avail > 1 {
+                // "…" + truncated segment
+                put!(&ELLIPSIS);
+                let n = pwd_avail - 1;
+                put!(&seg[..n]);
+                pwd_vis = pwd_avail;
+            } else {
+                put!(&ELLIPSIS);
+                pwd_vis = 1;
+            }
+        } else if pwd_avail > 1 {
+            // No slash: "…" + tail of path
+            put!(&ELLIPSIS);
+            let n = pwd_avail - 1;
+            put!(&dir_bytes[dir_len - n..]);
+            pwd_vis = pwd_avail;
+        } else {
+            put!(&ELLIPSIS);
+            pwd_vis = 1;
+        }
+    }
+    vis += pwd_vis;
+
+    // --- Separator + Command ---
+    let remaining = left_budget.saturating_sub(pwd_vis);
+    let cmd_bytes = unsafe { &CMD_BUF[..cmd_len] };
+
+    if remaining >= 4 && cmd_len > 0 {
+        put!(b" | ");
+        vis += 3;
+
+        let cmd_avail = remaining - 3;
+        if cmd_len <= cmd_avail {
+            put!(cmd_bytes);
+            vis += cmd_len;
+        } else if cmd_avail > 1 {
+            put!(&cmd_bytes[..cmd_avail - 1]);
+            put!(&ELLIPSIS);
+            vis += cmd_avail;
+        } else {
+            put!(&ELLIPSIS);
+            vis += 1;
+        }
+    }
+
+    // --- Space fill ---
+    let target = if show_right { cols - eff_right } else { cols };
+    while vis < target {
+        put!(b" ");
+        vis += 1;
+    }
+
+    // --- Right section ---
+    if show_right {
+        put!(b"ai-jail ");
+        put!(ver);
+        vis += 8 + ver.len();
+
+        if has_update {
+            put!(b" \x1b[32m"); // space + green
+            put!(&UP_ARROW);
+            if dark {
+                put!(b"\x1b[37;40m");
+            } else {
+                put!(b"\x1b[90;107m");
+            }
+            vis += 2;
+        }
+    }
+
+    // Safety fill
+    while vis < cols {
+        put!(b" ");
         vis += 1;
     }
 
@@ -276,5 +442,26 @@ mod tests {
     #[test]
     fn active_default_false() {
         assert!(!ACTIVE.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn is_newer_basic() {
+        assert!(is_newer("1.0.0", "0.9.9"));
+        assert!(is_newer("0.5.0", "0.4.5"));
+        assert!(is_newer("0.4.6", "0.4.5"));
+        assert!(!is_newer("0.4.5", "0.4.5"));
+        assert!(!is_newer("0.4.4", "0.4.5"));
+        assert!(!is_newer("0.3.0", "0.4.5"));
+    }
+
+    #[test]
+    fn is_newer_partial_version() {
+        assert!(is_newer("1.0", "0.9.9"));
+        assert!(!is_newer("0.4", "0.4.5"));
+    }
+
+    #[test]
+    fn update_available_default_false() {
+        assert!(!UPDATE_AVAILABLE.load(Ordering::SeqCst));
     }
 }
