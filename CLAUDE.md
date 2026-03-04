@@ -8,13 +8,19 @@ A Rust CLI tool that wraps bubblewrap (`bwrap`) to sandbox AI coding agents (Cla
 
 ```
 src/
-  main.rs       -- entry point, orchestration, TempFile RAII guard
-  cli.rs        -- argument parsing with lexopt
-  config.rs     -- .ai-jail TOML config load/save/merge
-  sandbox.rs    -- bwrap command builder
-  mounts.rs     -- mount discovery (home dotfiles, GPU, Docker, display)
-  signals.rs    -- signal forwarding + child process reaping
-  output.rs     -- colored terminal output helpers (raw ANSI, no deps)
+  main.rs         -- entry point, orchestration, TempFile RAII guard
+  cli.rs          -- argument parsing with lexopt
+  config.rs       -- .ai-jail TOML config load/save/merge (project + global)
+  sandbox/
+    mod.rs        -- shared sandbox logic, mount lists, launch wrapper
+    bwrap.rs      -- bwrap command builder + mount discovery (Linux)
+    landlock.rs   -- Landlock LSM path rules (Linux)
+    seatbelt.rs   -- sandbox-exec SBPL profile generation (macOS)
+  pty.rs          -- PTY proxy for status bar (raw mode, IO loop, escape tracking)
+  statusbar.rs    -- persistent terminal status bar (scroll region, redraw, update check)
+  signals.rs      -- signal forwarding + child process reaping
+  output.rs       -- colored terminal output helpers (raw ANSI, no deps)
+  bootstrap.rs    -- AI tool config generation (Claude, Codex, OpenCode)
 ```
 
 ## Critical Rule: Backward Compatibility
@@ -46,7 +52,7 @@ There are regression tests in `src/config.rs` that parse old config file formats
 ## Coding Conventions
 
 - **No async, no tokio.** This is a synchronous CLI tool.
-- **Minimal dependencies.** Current deps: `lexopt`, `serde`, `toml`, `nix`. Do not add new crates without a strong justification.
+- **Minimal dependencies.** Current deps: `lexopt`, `serde`, `toml`, `serde_json`, `nix`. Do not add new crates without a strong justification.
 - **No clap.** We use `lexopt` for argument parsing to keep the binary small.
 - **Raw ANSI for colors.** No color crate — `output.rs` handles this with raw escape codes.
 - **Warn and skip, never crash.** Missing paths, unreadable dirs, and non-critical errors produce a warning and continue. Only truly fatal errors (no bwrap, can't get cwd) should cause an exit.

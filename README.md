@@ -182,6 +182,17 @@ On Linux 5.13+, ai-jail applies [Landlock](https://landlock.io/) restrictions as
 - In `--lockdown`, Landlock rules are stricter: project is read-only, no home dotdirs, only `/tmp` is writable.
 - Disable with `--no-landlock` if it causes issues with specific tools.
 
+### Status bar
+
+Enable a persistent status line on the bottom row of your terminal:
+
+```bash
+ai-jail -s claude          # dark theme
+ai-jail -s=light claude    # light theme
+```
+
+The bar shows the project path, running command, ai-jail version, and a green `↑` when an update is available. It uses a PTY proxy to keep the bar visible even when the child application resets the screen. The preference is stored in `$HOME/.ai-jail` and persists across sessions.
+
 ### mise integration
 
 If [mise](https://mise.jdx.dev/) is found on `$PATH`, the sandbox automatically runs `mise trust && mise activate bash && mise env` before your command. This gives AI tools access to project-specific language versions. Disable with `--no-mise`.
@@ -218,6 +229,8 @@ If no command is given and no `.ai-jail` config exists, defaults to `bash`.
 | `--docker` / `--no-docker` | Enable/disable Docker socket |
 | `--display` / `--no-display` | Enable/disable X11/Wayland |
 | `--mise` / `--no-mise` | Enable/disable mise integration |
+| `-s`, `--status-bar[=light]` | Enable persistent status line (dark or light theme) |
+| `--no-status-bar` | Disable persistent status line |
 | `--clean` | Ignore existing config, start fresh |
 | `--dry-run` | Print the bwrap command without executing |
 | `--init` | Create/update config and exit (don't run) |
@@ -291,6 +304,8 @@ When CLI flags and an existing config are both present:
 | `no_mise` | bool | not set (auto) | `true` disables mise integration |
 | `no_landlock` | bool | not set (auto) | `true` disables Landlock LSM (Linux only) |
 | `lockdown` | bool | not set (disabled) | `true` enables strict read-only lockdown mode |
+
+Status bar preferences (`no_status_bar`, `status_bar_style`) are stored in `$HOME/.ai-jail` (global user config), not in per-project `.ai-jail` files.
 
 When a boolean field is not set, the feature is enabled if the resource exists on the host.
 
