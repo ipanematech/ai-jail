@@ -366,23 +366,23 @@ pub fn prepare() -> Result<SandboxGuard, String> {
 /// we mount the temp file at the symlink *target* so the symlink inside
 /// the sandbox (inherited from --ro-bind /etc) resolves correctly.
 /// If it is a regular file, we mount directly over /etc/resolv.conf.
+///
+/// On systemd-resolved systems the stub resolv.conf contains
+/// `nameserver 127.0.0.53`.  While the stub listener is reachable
+/// over a shared network namespace, some runtimes (notably Go's
+/// pure-Go resolver) fail to use it reliably inside a sandbox.
+/// When we detect the stub address we replace the contents with the
+/// real upstream nameservers from `/run/systemd/resolve/resolv.conf`.
 fn new_resolv_file() -> (Option<PathBuf>, Option<PathBuf>) {
     let resolv = Path::new("/etc/resolv.conf");
 
-    // Determine where to mount inside the sandbox
-    let dest = match std::fs::read_link(resolv) {
-        Ok(target) => {
-            // Symlink: mount at the target path so the symlink works
-            if target.is_absolute() {
-                target
-            } else {
-                PathBuf::from("/etc").join(target)
-            }
-        }
-        Err(_) => {
-            // Regular file: mount directly over /etc/resolv.conf
-            resolv.to_path_buf()
-        }
+    // canonicalize resolves all symlinks and normalizes ".." segments.
+    // read_link only reads one level and can produce paths like
+    // /etc/../run/systemd/resolve/stub-resolv.conf which may confuse
+    // bwrap when creating intermediate mount-point directories.
+    let dest = match std::fs::canonicalize(resolv) {
+        Ok(canonical) => canonical,
+        Err(_) => resolv.to_path_buf(),
     };
 
     let contents = match std::fs::read(resolv) {
@@ -392,6 +392,10 @@ fn new_resolv_file() -> (Option<PathBuf>, Option<PathBuf>) {
             return (None, None);
         }
     };
+
+    // Replace systemd-resolved stub address with real upstream
+    // nameservers when available.
+    let contents = resolve_real_nameservers(contents);
 
     let tmp = std::env::temp_dir();
     let nonce = SystemTime::now()
@@ -419,6 +423,26 @@ fn new_resolv_file() -> (Option<PathBuf>, Option<PathBuf>) {
             output::warn(&format!("Cannot create temp resolv.conf: {e}"));
             (None, None)
         }
+    }
+}
+
+/// If `contents` references the systemd-resolved stub listener
+/// (`nameserver 127.0.0.53`), try to replace with the real upstream
+/// nameservers from `/run/systemd/resolve/resolv.conf`.
+/// Falls back to the original contents when the real file is absent.
+fn resolve_real_nameservers(contents: Vec<u8>) -> Vec<u8> {
+    let text = String::from_utf8_lossy(&contents);
+    let has_stub = text.lines().any(|line| {
+        line.trim().starts_with("nameserver") && line.contains("127.0.0.53")
+    });
+    if !has_stub {
+        return contents;
+    }
+
+    let real = Path::new("/run/systemd/resolve/resolv.conf");
+    match std::fs::read(real) {
+        Ok(real_contents) => real_contents,
+        Err(_) => contents,
     }
 }
 
@@ -1349,6 +1373,28 @@ mod tests {
             run_tmpfs_idx.unwrap() < resolv_idx.unwrap(),
             "resolv bind must come after /run tmpfs"
         );
+    }
+
+    #[test]
+    fn resolve_real_nameservers_no_stub() {
+        let input = b"nameserver 8.8.8.8\nnameserver 8.8.4.4\n";
+        let result = resolve_real_nameservers(input.to_vec());
+        assert_eq!(result, input.to_vec());
+    }
+
+    #[test]
+    fn resolve_real_nameservers_detects_stub() {
+        let input = b"nameserver 127.0.0.53\noptions edns0 trust-ad\n";
+        let result = resolve_real_nameservers(input.to_vec());
+        // If /run/systemd/resolve/resolv.conf exists, we get its
+        // contents; otherwise we fall back to the original.
+        let real = Path::new("/run/systemd/resolve/resolv.conf");
+        if real.exists() {
+            let expected = std::fs::read(real).unwrap();
+            assert_eq!(result, expected);
+        } else {
+            assert_eq!(result, input.to_vec());
+        }
     }
 
     #[test]
