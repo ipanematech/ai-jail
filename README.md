@@ -7,7 +7,7 @@ A sandbox wrapper for AI coding agents (Linux: `bwrap`, macOS: `sandbox-exec`). 
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew tap akitaonrails/tap && brew install ai-jail
+brew tap ipanematech/ai-jail && brew install ai-jail
 ```
 
 ### cargo install
@@ -19,30 +19,30 @@ cargo install ai-jail
 ### mise
 
 ```bash
-mise use -g github:akitaonrails/ai-jail
+mise use -g github:ipanematech/ai-jail
 ```
 
 ### Nix (flake)
 
 ```bash
 # Run directly without installing
-nix run github:akitaonrails/ai-jail
+nix run github:ipanematech/ai-jail
 
 # Install to your profile
-nix profile install github:akitaonrails/ai-jail
+nix profile install github:ipanematech/ai-jail
 ```
 
 ### GitHub Releases
 
-Download prebuilt binaries from the [Releases](https://github.com/akitaonrails/ai-jail/releases) page:
+Download prebuilt binaries from the [Releases](https://github.com/ipanematech/ai-jail/releases) page:
 
 ```bash
 # Linux x86_64
-curl -fsSL https://github.com/akitaonrails/ai-jail/releases/latest/download/ai-jail-linux-x86_64.tar.gz | tar xz
+curl -fsSL https://github.com/ipanematech/ai-jail/releases/latest/download/ai-jail-linux-x86_64.tar.gz | tar xz
 sudo mv ai-jail /usr/local/bin/
 
 # macOS ARM (Apple Silicon)
-curl -fsSL https://github.com/akitaonrails/ai-jail/releases/latest/download/ai-jail-macos-aarch64.tar.gz | tar xz
+curl -fsSL https://github.com/ipanematech/ai-jail/releases/latest/download/ai-jail-macos-aarch64.tar.gz | tar xz
 sudo mv ai-jail /usr/local/bin/
 ```
 
