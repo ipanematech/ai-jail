@@ -11,7 +11,6 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 static STYLE_DARK: AtomicBool = AtomicBool::new(true);
 static DIRTY: AtomicBool = AtomicBool::new(false);
 static NEED_CLAMP: AtomicBool = AtomicBool::new(false);
-static NEED_SIGWINCH: AtomicBool = AtomicBool::new(false);
 static LAST_ROWS: AtomicUsize = AtomicUsize::new(0);
 
 const MAX_DIR: usize = 4096;
@@ -152,31 +151,23 @@ pub fn setup(project_dir: &std::path::Path, command: &[String], style: &str) {
 /// Signal that a newer version is available. Triggers redraw.
 pub fn set_update_available() {
     UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
-    request_redraw(false, false);
+    request_redraw(false);
 }
 
 /// Request a redraw from async contexts.
 /// If `clamp` is true, cursor will be clamped after redraw.
-/// If `sigwinch` is true, the IO loop will forward SIGWINCH to the
-/// child AFTER the redraw completes (so it redraws onto the clean
-/// screen established by the status bar redraw).
-pub fn request_redraw(clamp: bool, sigwinch: bool) {
+pub fn request_redraw(clamp: bool) {
     DIRTY.store(true, Ordering::SeqCst);
     if clamp {
         NEED_CLAMP.store(true, Ordering::SeqCst);
     }
-    if sigwinch {
-        NEED_SIGWINCH.store(true, Ordering::SeqCst);
-    }
 }
 
-/// Consume and clear pending redraw/clamp/sigwinch requests.
-/// Returns (redraw, clamp, sigwinch).
-pub fn take_requests() -> (bool, bool, bool) {
+/// Consume and clear pending redraw/clamp requests.
+pub fn take_requests() -> (bool, bool) {
     let redraw = DIRTY.swap(false, Ordering::SeqCst);
     let clamp = NEED_CLAMP.swap(false, Ordering::SeqCst);
-    let sigwinch = NEED_SIGWINCH.swap(false, Ordering::SeqCst);
-    (redraw, clamp, sigwinch)
+    (redraw, clamp)
 }
 
 /// Clamp the cursor into the scroll region.
@@ -543,8 +534,8 @@ mod tests {
     fn request_redraw_tracks_clamp_flag() {
         DIRTY.store(false, Ordering::SeqCst);
         NEED_CLAMP.store(false, Ordering::SeqCst);
-        request_redraw(true, false);
-        assert_eq!(take_requests(), (true, true, false));
-        assert_eq!(take_requests(), (false, false, false));
+        request_redraw(true);
+        assert_eq!(take_requests(), (true, true));
+        assert_eq!(take_requests(), (false, false));
     }
 }

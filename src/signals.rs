@@ -8,20 +8,14 @@ pub fn set_child_pid(pid: i32) {
     CHILD_PID.store(pid, Ordering::SeqCst);
 }
 
-pub fn child_pid() -> i32 {
-    CHILD_PID.load(Ordering::SeqCst)
-}
-
 extern "C" fn forward_signal(sig: nix::libc::c_int) {
     if sig == nix::libc::SIGWINCH {
-        // Don't resize the PTY or forward SIGWINCH here.
-        // TIOCSWINSZ on the master causes the kernel to send
-        // SIGWINCH to the child immediately, which would make the
-        // child redraw before we clear the screen.  The IO loop
-        // will resize the PTY (and thus deliver SIGWINCH) AFTER
-        // clearing the screen and re-establishing the scroll
-        // region.
-        crate::statusbar::request_redraw(true, true);
+        // Resize PTY immediately so the kernel delivers SIGWINCH
+        // to the child right away.  The child redraws; its output
+        // flows through the PTY master to our IO loop, which
+        // re-establishes the status bar at the next safe boundary.
+        crate::pty::resize_pty();
+        crate::statusbar::request_redraw(true);
         return;
     }
 
