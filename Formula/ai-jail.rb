@@ -2,9 +2,9 @@ class AiJail < Formula
   desc "Sandbox wrapper for AI coding agents"
   homepage "https://github.com/ipanematech/ai-jail"
   url "https://github.com/ipanematech/ai-jail.git",
-      tag: "v0.5.4",
-      revision: "598c98866917a65e0fd1c52a7b74ff371b4cbd27"
-  version "0.5.4"
+      tag: "v0.5.5",
+      revision: "e1e487229310771c232041f13ec8dd8aaeb49082"
+  version "0.5.5"
   license "GPL-3.0-only"
 
   depends_on "rust" => :build
