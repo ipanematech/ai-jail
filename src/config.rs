@@ -195,7 +195,7 @@ pub fn save_global(config: &Config) {
 
 fn save_to_path(path: &Path, config: &Config) {
     let header = "# ai-jail sandbox configuration\n\
-                  # https://github.com/akitaonrails/ai-jail\n\
+                  # https://github.com/ipanematech/ai-jail\n\
                   # Edit freely. Regenerate with: \
                   ai-jail --clean --init\n\n";
     if let Err(e) = ensure_regular_target_or_absent(path) {

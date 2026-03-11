@@ -175,7 +175,7 @@ pub fn check_update_background() {
                 "5",
                 "-H",
                 "Accept: application/vnd.github.v3+json",
-                "https://api.github.com/repos/akitaonrails/ai-jail/releases/latest",
+                "https://api.github.com/repos/ipanematech/ai-jail/releases/latest",
             ])
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
