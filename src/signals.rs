@@ -10,17 +10,11 @@ pub fn set_child_pid(pid: i32) {
 
 extern "C" fn forward_signal(sig: nix::libc::c_int) {
     if sig == nix::libc::SIGWINCH {
-        crate::pty::resize_pty();
-        let forwarded = crate::pty::forward_sigwinch();
-        if !forwarded {
-            let pid = CHILD_PID.load(Ordering::SeqCst);
-            if pid > 0 {
-                unsafe {
-                    nix::libc::kill(pid, sig);
-                }
-            }
-        }
-        crate::statusbar::request_redraw(true);
+        // Only set flag — the IO loop will resize vt100 FIRST, then
+        // resize the PTY (which delivers SIGWINCH to the child via
+        // kernel TIOCSWINSZ). This ordering ensures vt100 is at the
+        // correct size when the child's redraw output arrives.
+        crate::pty::set_sigwinch_pending();
         return;
     }
 

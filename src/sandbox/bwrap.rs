@@ -65,6 +65,7 @@ impl Mount {
 
 struct MountSet {
     base: Vec<Mount>,
+    sys_masks: Vec<Mount>,
     home_dotfiles: Vec<Mount>,
     config_hide: Vec<Mount>,
     cache_hide: Vec<Mount>,
@@ -79,9 +80,10 @@ struct MountSet {
 }
 
 impl MountSet {
-    fn ordered_mounts(&self) -> [&[Mount]; 11] {
+    fn ordered_mounts(&self) -> [&[Mount]; 12] {
         [
             &self.base,
+            &self.sys_masks,
             &self.gpu,
             &self.shm,
             &self.docker,
@@ -140,8 +142,15 @@ impl MountSet {
                 "HOME".into(),
                 super::home_dir().display().to_string(),
             ]);
-            if let Ok(term) = std::env::var("TERM") {
-                args.extend(["--setenv".into(), "TERM".into(), term]);
+            // Pass through terminal-related env vars so child
+            // programs can detect capabilities (truecolor, kitty
+            // keyboard protocol, etc.).
+            for var in
+                ["TERM", "COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION"]
+            {
+                if let Ok(val) = std::env::var(var) {
+                    args.extend(["--setenv".into(), var.into(), val]);
+                }
             }
         } else {
             for (key, val) in &self.display_env {
@@ -284,8 +293,14 @@ pub(crate) fn bwrap_binary_path() -> Result<PathBuf, String> {
     Err(msg)
 }
 
+/// Use --new-session unless the PTY proxy (status bar) is active.
+/// bwrap's --new-session calls setsid() inside the sandbox, which
+/// creates a new session with NO controlling terminal. This prevents
+/// SIGWINCH delivery from the PTY, so the child never redraws on
+/// resize. When the PTY proxy is active, the PTY slave IS the
+/// controlling terminal and already provides session isolation.
 fn should_use_new_session() -> bool {
-    true
+    !crate::statusbar::is_active()
 }
 
 fn bwrap_program_for_exec() -> PathBuf {
@@ -709,6 +724,7 @@ fn discover_mounts(
 
     MountSet {
         base: discover_base(hosts_file, resolv_mount),
+        sys_masks: discover_sys_masks(lockdown),
         home_dotfiles: discover_home_dotfiles(lockdown, verbose),
         config_hide: if lockdown {
             vec![]
@@ -915,6 +931,38 @@ fn discover_local_overrides() -> Vec<Mount> {
         }
     }
 
+    mounts
+}
+
+// Sensitive /sys paths masked with tmpfs to reduce information
+// leakage useful for kernel/namespace escape reconnaissance.
+const SYS_MASK_ALWAYS: &[&str] = &[
+    "/sys/firmware",        // BIOS/UEFI/ACPI tables
+    "/sys/kernel/security", // LSM interfaces
+    "/sys/kernel/debug",    // debugfs
+    "/sys/fs/fuse",         // FUSE control
+];
+
+const SYS_MASK_LOCKDOWN: &[&str] = &[
+    "/sys/module",              // loaded kernel modules
+    "/sys/devices/virtual/dmi", // DMI/SMBIOS tables
+    "/sys/class/net",           // network interface enumeration
+];
+
+fn discover_sys_masks(lockdown: bool) -> Vec<Mount> {
+    let mut mounts = Vec::new();
+    let lists: &[&[&str]] = if lockdown {
+        &[SYS_MASK_ALWAYS, SYS_MASK_LOCKDOWN]
+    } else {
+        &[SYS_MASK_ALWAYS]
+    };
+    for list in lists {
+        for &path in *list {
+            if super::path_exists(&PathBuf::from(path)) {
+                mounts.push(Mount::Tmpfs { dest: path.into() });
+            }
+        }
+    }
     mounts
 }
 
@@ -1249,7 +1297,8 @@ mod tests {
     }
 
     #[test]
-    fn bwrap_always_uses_new_session() {
+    fn new_session_when_status_bar_inactive() {
+        // When status bar is not active, --new-session should be used
         assert!(should_use_new_session());
     }
 
